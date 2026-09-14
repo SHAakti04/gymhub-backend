@@ -1,0 +1,28 @@
+openapi: 3.0.3
+info:
+  title: MyGym Backend API
+  version: 0.1.0
+servers:
+  - url: http://localhost:4000/api/v1
+paths:
+  /auth/login:
+    post:
+      summary: Login
+  /auth/register:
+    post:
+      summary: Register
+  /members:
+    get:
+      summary: List members
+  /attendance/today:
+    get:
+      summary: Today's attendance
+  /payments:
+    get:
+      summary: List payments
+  /leads:
+    post:
+      summary: Public lead capture
+  /reports/dashboard:
+    get:
+      summary: Dashboard report

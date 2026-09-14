@@ -1,0 +1,2 @@
+ALTER TABLE renewals
+  MODIFY status VARCHAR(30) NOT NULL DEFAULT 'pending';
