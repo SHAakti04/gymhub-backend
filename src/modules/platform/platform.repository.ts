@@ -1,5 +1,4 @@
-import type { ResultSetHeader, RowDataPacket } from "mysql2";
-import { query, withTransaction } from "../../config/db.js";
+import { query, execute, withTransaction } from "../../config/db.js";
 import { makeId } from "../../common/utils/crypto.util.js";
 
 export interface OnboardGymInput {
@@ -42,11 +41,11 @@ export const platformRepository = {
     entityId?: string | null;
     payload?: unknown;
   }) {
-    await query<ResultSetHeader>(
+    await execute(
       `
       INSERT INTO platform_audit_logs
         (id, actor_user_id, gym_id, action_name, entity_type, entity_id, payload_json)
-      VALUES (?, ?, ?, ?, ?, ?, CAST(? AS JSON))
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
       `,
       [
         makeId(),
@@ -61,14 +60,14 @@ export const platformRepository = {
   },
 
   async dashboard() {
-    const rows = await query<RowDataPacket[]>(
+    const rows = await query(
       `
       SELECT
         COUNT(*) AS totalGyms,
         SUM(CASE WHEN g.status = 'active' THEN 1 ELSE 0 END) AS activeGyms,
         SUM(CASE WHEN g.status = 'suspended' THEN 1 ELSE 0 END) AS suspendedGyms,
         SUM(CASE WHEN gs.status = 'trial' THEN 1 ELSE 0 END) AS trialGyms,
-        SUM(CASE WHEN gs.status = 'trial' AND gs.trial_ends_at BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 7 DAY) THEN 1 ELSE 0 END) AS trialsEndingSoon,
+        SUM(CASE WHEN gs.status = 'trial' AND gs.trial_ends_at BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days' THEN 1 ELSE 0 END) AS trialsEndingSoon,
         COALESCE(SUM(CASE WHEN gs.status IN ('active','trial') THEN gs.price_inr ELSE 0 END), 0) AS mrr,
         COALESCE(SUM(CASE WHEN pi.status IN ('open','overdue') THEN pi.amount_inr ELSE 0 END), 0) AS overdueAmount
       FROM gyms g
@@ -81,7 +80,7 @@ export const platformRepository = {
   },
 
   async listGyms() {
-    return query<RowDataPacket[]>(
+    return query(
       `
       SELECT
         g.id,
@@ -129,20 +128,20 @@ export const platformRepository = {
     accentColor?: string | null;
     logoUrl?: string | null;
   }) {
-    await query<ResultSetHeader>(
+    await execute(
       `
       UPDATE gyms
       SET
-        name = COALESCE(?, name),
-        slug = COALESCE(?, slug),
-        city = ?,
-        state = ?,
-        owner_name = COALESCE(?, owner_name),
-        owner_email = COALESCE(?, owner_email),
-        brand_color = ?,
-        accent_color = ?,
-        logo_url = ?
-      WHERE id = ?
+        name = COALESCE($1, name),
+        slug = COALESCE($2, slug),
+        city = $3,
+        state = $4,
+        owner_name = COALESCE($5, owner_name),
+        owner_email = COALESCE($6, owner_email),
+        brand_color = $7,
+        accent_color = $8,
+        logo_url = $9
+      WHERE id = $10
       `,
       [
         input.name ?? null,
@@ -167,12 +166,12 @@ export const platformRepository = {
       payload: input,
     });
 
-    const rows = await query<RowDataPacket[]>(`SELECT * FROM gyms WHERE id = ? LIMIT 1`, [input.gymId]);
+    const rows = await query(`SELECT * FROM gyms WHERE id = $1 LIMIT 1`, [input.gymId]);
     return rows[0] ?? null;
   },
 
   async listPlans() {
-    return query<RowDataPacket[]>(`SELECT * FROM saas_plans ORDER BY monthly_inr ASC`);
+    return query(`SELECT * FROM saas_plans ORDER BY monthly_inr ASC`);
   },
 
   async createPlan(input: {
@@ -188,12 +187,12 @@ export const platformRepository = {
     features: string[];
     isActive: boolean;
   }) {
-    await query<ResultSetHeader>(
+    await execute(
       `
       INSERT INTO saas_plans
         (id, name, tier, monthly_inr, annual_inr, max_members, max_staff,
          whatsapp_monthly_quota, ai_monthly_quota, features_json, is_active)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON), ?)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
       `,
       [
         input.id,
@@ -206,7 +205,7 @@ export const platformRepository = {
         input.whatsappMonthlyQuota,
         input.aiMonthlyQuota,
         JSON.stringify(input.features),
-        input.isActive ? 1 : 0,
+        input.isActive,
       ],
     );
 
@@ -225,21 +224,21 @@ export const platformRepository = {
     features: string[];
     isActive: boolean;
   }>) {
-    await query<ResultSetHeader>(
+    await execute(
       `
       UPDATE saas_plans
       SET
-        name = COALESCE(?, name),
-        tier = COALESCE(?, tier),
-        monthly_inr = COALESCE(?, monthly_inr),
-        annual_inr = COALESCE(?, annual_inr),
-        max_members = COALESCE(?, max_members),
-        max_staff = COALESCE(?, max_staff),
-        whatsapp_monthly_quota = COALESCE(?, whatsapp_monthly_quota),
-        ai_monthly_quota = COALESCE(?, ai_monthly_quota),
-        features_json = COALESCE(CAST(? AS JSON), features_json),
-        is_active = COALESCE(?, is_active)
-      WHERE id = ?
+        name = COALESCE($1, name),
+        tier = COALESCE($2, tier),
+        monthly_inr = COALESCE($3, monthly_inr),
+        annual_inr = COALESCE($4, annual_inr),
+        max_members = COALESCE($5, max_members),
+        max_staff = COALESCE($6, max_staff),
+        whatsapp_monthly_quota = COALESCE($7, whatsapp_monthly_quota),
+        ai_monthly_quota = COALESCE($8, ai_monthly_quota),
+        features_json = COALESCE($9, features_json),
+        is_active = COALESCE($10, is_active)
+      WHERE id = $11
       `,
       [
         input.name ?? null,
@@ -251,7 +250,7 @@ export const platformRepository = {
         input.whatsappMonthlyQuota ?? null,
         input.aiMonthlyQuota ?? null,
         input.features ? JSON.stringify(input.features) : null,
-        typeof input.isActive === "boolean" ? (input.isActive ? 1 : 0) : null,
+        input.isActive ?? null,
         planId,
       ],
     );
@@ -260,7 +259,7 @@ export const platformRepository = {
   },
 
   async listFeatures() {
-    return query<RowDataPacket[]>(`SELECT * FROM feature_registry ORDER BY name ASC`);
+    return query(`SELECT * FROM feature_registry ORDER BY name ASC`);
   },
 
   async createFeature(input: {
@@ -269,20 +268,20 @@ export const platformRepository = {
     description?: string | null;
     defaultEnabled: boolean;
   }) {
-    await query<ResultSetHeader>(
+    await execute(
       `
       INSERT INTO feature_registry (feature_key, name, description, default_enabled)
-      VALUES (?, ?, ?, ?)
-      ON DUPLICATE KEY UPDATE
-        name = VALUES(name),
-        description = VALUES(description),
-        default_enabled = VALUES(default_enabled)
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT (feature_key) DO UPDATE SET
+        name = EXCLUDED.name,
+        description = EXCLUDED.description,
+        default_enabled = EXCLUDED.default_enabled
       `,
-      [input.featureKey, input.name, input.description ?? null, input.defaultEnabled ? 1 : 0],
+      [input.featureKey, input.name, input.description ?? null, input.defaultEnabled],
     );
 
-    const rows = await query<RowDataPacket[]>(
-      `SELECT * FROM feature_registry WHERE feature_key = ? LIMIT 1`,
+    const rows = await query(
+      `SELECT * FROM feature_registry WHERE feature_key = $1 LIMIT 1`,
       [input.featureKey],
     );
 
@@ -290,7 +289,7 @@ export const platformRepository = {
   },
 
   async listGymFeatures(gymId: string) {
-    return query<RowDataPacket[]>(
+    return query(
       `
       SELECT
         fr.feature_key,
@@ -301,7 +300,7 @@ export const platformRepository = {
       FROM feature_registry fr
       LEFT JOIN gym_feature_flags gff
         ON gff.feature_key = fr.feature_key
-        AND gff.gym_id = ?
+        AND gff.gym_id = $1
       ORDER BY fr.name ASC
       `,
       [gymId],
@@ -314,13 +313,13 @@ export const platformRepository = {
     featureKey: string;
     enabled: boolean;
   }) {
-    await query<ResultSetHeader>(
+    await execute(
       `
       INSERT INTO gym_feature_flags (id, gym_id, feature_key, enabled)
-      VALUES (?, ?, ?, ?)
-      ON DUPLICATE KEY UPDATE enabled = VALUES(enabled), updated_at = NOW()
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT (gym_id, feature_key) DO UPDATE SET enabled = EXCLUDED.enabled, updated_at = NOW()
       `,
-      [makeId(), input.gymId, input.featureKey, input.enabled ? 1 : 0],
+      [makeId(), input.gymId, input.featureKey, input.enabled],
     );
 
     await this.audit({
@@ -336,20 +335,20 @@ export const platformRepository = {
   },
 
   async findPlan(planId: string) {
-    const rows = await query<RowDataPacket[]>(
-      `SELECT * FROM saas_plans WHERE id = ? LIMIT 1`,
+    const rows = await query(
+      `SELECT * FROM saas_plans WHERE id = $1 LIMIT 1`,
       [planId],
     );
     return rows[0] ?? null;
   },
 
   async emailExists(email: string) {
-    const rows = await query<RowDataPacket[]>(`SELECT id FROM users WHERE email = ? LIMIT 1`, [email]);
+    const rows = await query(`SELECT id FROM users WHERE email = $1 LIMIT 1`, [email]);
     return Boolean(rows[0]);
   },
 
   async gymExists(gymId: string) {
-    const rows = await query<RowDataPacket[]>(`SELECT id FROM gyms WHERE id = ? LIMIT 1`, [gymId]);
+    const rows = await query(`SELECT id FROM gyms WHERE id = $1 LIMIT 1`, [gymId]);
     return Boolean(rows[0]);
   },
 
@@ -358,22 +357,22 @@ export const platformRepository = {
       const userId = makeId();
       const subscriptionId = makeId();
 
-      const [roleRows] = await connection.query<RowDataPacket[]>(`SELECT id FROM roles WHERE name = 'admin' LIMIT 1`);
-      const adminRoleId = roleRows[0]?.id as string | undefined;
+      const roleResult = await connection.query(`SELECT id FROM roles WHERE name = 'admin' LIMIT 1`);
+      const adminRoleId = roleResult.rows[0]?.id as string | undefined;
       if (!adminRoleId) throw new Error("Admin role is not configured");
 
-      const [planRows] = await connection.query<RowDataPacket[]>(`SELECT * FROM saas_plans WHERE id = ? LIMIT 1`, [input.planId]);
-      const plan = planRows[0];
+      const planResult = await connection.query(`SELECT * FROM saas_plans WHERE id = $1 LIMIT 1`, [input.planId]);
+      const plan = planResult.rows[0];
       if (!plan) throw new Error("SaaS plan not found");
 
       const price = input.billingCycle === "annual" ? Number(plan.annual_inr) : Number(plan.monthly_inr);
 
-      await connection.query<ResultSetHeader>(
+      await connection.query(
         `
         INSERT INTO gyms
           (id, name, slug, city, state, owner_name, owner_email, plan_name, status,
            monthly_fee, subscription_status, trial_ends_at, brand_color, accent_color)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, 'trial', DATE_ADD(CURDATE(), INTERVAL 14 DAY), ?, ?)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active', $9, 'trial', CURRENT_DATE + INTERVAL '14 days', $10, $11)
         `,
         [
           input.gymId,
@@ -390,47 +389,45 @@ export const platformRepository = {
         ],
       );
 
-      await connection.query<ResultSetHeader>(
-        `
-        INSERT INTO users (id, gym_id, email, password_hash, full_name, phone, is_active)
-        VALUES (?, ?, ?, ?, ?, ?, 1)
-        `,
+      await connection.query(
+        `INSERT INTO users (id, gym_id, email, password_hash, full_name, phone, is_active)
+         VALUES ($1, $2, $3, $4, $5, $6, TRUE)`,
         [userId, input.gymId, input.ownerEmail, input.passwordHash, input.ownerName, input.ownerPhone ?? null],
       );
 
-      await connection.query<ResultSetHeader>(
-        `INSERT INTO user_role_assignments (id, user_id, role_id) VALUES (?, ?, ?)`,
+      await connection.query(
+        `INSERT INTO user_role_assignments (id, user_id, role_id) VALUES ($1, $2, $3)`,
         [makeId(), userId, adminRoleId],
       );
 
-      await connection.query<ResultSetHeader>(
+      await connection.query(
         `
         INSERT INTO gym_subscriptions
           (id, gym_id, plan_id, status, billing_cycle, price_inr, started_at, trial_ends_at, current_period_end)
-        VALUES (?, ?, ?, 'trial', ?, ?, CURDATE(), DATE_ADD(CURDATE(), INTERVAL 14 DAY), DATE_ADD(CURDATE(), INTERVAL 1 MONTH))
+        VALUES ($1, $2, $3, 'trial', $4, $5, CURRENT_DATE, CURRENT_DATE + INTERVAL '14 days', CURRENT_DATE + INTERVAL '1 month')
         `,
         [subscriptionId, input.gymId, input.planId, input.billingCycle, price],
       );
 
       const features = normalizePlanFeatures(plan.features_json);
       for (const feature of features) {
-        await connection.query<ResultSetHeader>(
+        await connection.query(
           `
           INSERT INTO gym_feature_flags (id, gym_id, feature_key, enabled)
-          VALUES (?, ?, ?, 1)
-          ON DUPLICATE KEY UPDATE enabled = 1
+          VALUES ($1, $2, $3, TRUE)
+          ON CONFLICT (gym_id, feature_key) DO UPDATE SET enabled = TRUE
           `,
           [makeId(), input.gymId, feature],
         );
       }
 
-      await connection.query<ResultSetHeader>(
+      await connection.query(
         `
         INSERT INTO platform_audit_logs
           (id, actor_user_id, gym_id, action_name, entity_type, entity_id, payload_json)
-        VALUES (?, NULL, ?, 'gym_onboarded', 'gym', ?, JSON_OBJECT('ownerEmail', ?, 'planId', ?))
+        VALUES ($1, NULL, $2, 'gym_onboarded', 'gym', $3, $4)
         `,
-        [makeId(), input.gymId, input.gymId, input.ownerEmail, input.planId],
+        [makeId(), input.gymId, input.gymId, JSON.stringify({ ownerEmail: input.ownerEmail, planId: input.planId })],
       );
 
       return { gymId: input.gymId, ownerUserId: userId, subscriptionId };
@@ -438,13 +435,13 @@ export const platformRepository = {
   },
 
   async setGymStatus(gymId: string, status: "active" | "suspended", actorUserId?: string | null) {
-    await query<ResultSetHeader>(
-      `UPDATE gyms SET status = ?, subscription_status = ? WHERE id = ?`,
+    await execute(
+      `UPDATE gyms SET status = $1, subscription_status = $2 WHERE id = $3`,
       [status, status === "suspended" ? "suspended" : "active", gymId],
     );
 
-    await query<ResultSetHeader>(
-      `UPDATE gym_subscriptions SET status = ? WHERE gym_id = ?`,
+    await execute(
+      `UPDATE gym_subscriptions SET status = $1 WHERE gym_id = $2`,
       [status === "suspended" ? "suspended" : "active", gymId],
     );
 
@@ -461,12 +458,12 @@ export const platformRepository = {
   },
 
   async getSubscription(gymId: string) {
-    const rows = await query<RowDataPacket[]>(
+    const rows = await query(
       `
       SELECT gs.*, sp.name AS plan_name, sp.features_json
       FROM gym_subscriptions gs
       LEFT JOIN saas_plans sp ON sp.id = gs.plan_id
-      WHERE gs.gym_id = ?
+      WHERE gs.gym_id = $1
       LIMIT 1
       `,
       [gymId],
@@ -485,24 +482,24 @@ export const platformRepository = {
     const plan = await this.findPlan(input.planId);
     const price = input.billingCycle === "annual" ? Number(plan?.annual_inr ?? 0) : Number(plan?.monthly_inr ?? 0);
 
-    await query<ResultSetHeader>(
+    await execute(
       `
       INSERT INTO gym_subscriptions
         (id, gym_id, plan_id, status, billing_cycle, price_inr, started_at, current_period_end)
-      VALUES (?, ?, ?, ?, ?, ?, CURDATE(), DATE_ADD(CURDATE(), INTERVAL 1 MONTH))
-      ON DUPLICATE KEY UPDATE
-        plan_id = VALUES(plan_id),
-        status = VALUES(status),
-        billing_cycle = VALUES(billing_cycle),
-        price_inr = VALUES(price_inr),
-        current_period_end = VALUES(current_period_end),
+      VALUES ($1, $2, $3, $4, $5, $6, CURRENT_DATE, CURRENT_DATE + INTERVAL '1 month')
+      ON CONFLICT (gym_id) DO UPDATE SET
+        plan_id = EXCLUDED.plan_id,
+        status = EXCLUDED.status,
+        billing_cycle = EXCLUDED.billing_cycle,
+        price_inr = EXCLUDED.price_inr,
+        current_period_end = EXCLUDED.current_period_end,
         updated_at = NOW()
       `,
       [makeId(), input.gymId, input.planId, input.status, input.billingCycle, price],
     );
 
-    await query<ResultSetHeader>(
-      `UPDATE gyms SET plan_name = ?, monthly_fee = ?, subscription_status = ? WHERE id = ?`,
+    await execute(
+      `UPDATE gyms SET plan_name = $1, monthly_fee = $2, subscription_status = $3 WHERE id = $4`,
       [input.planId, Number(plan?.monthly_inr ?? price), input.status, input.gymId],
     );
 
@@ -527,16 +524,16 @@ export const platformRepository = {
     trialEndsAt?: string | null;
     currentPeriodEnd?: string | null;
   }) {
-    await query<ResultSetHeader>(
+    await execute(
       `
       UPDATE gym_subscriptions
       SET
-        status = COALESCE(?, status),
-        billing_cycle = COALESCE(?, billing_cycle),
-        price_inr = COALESCE(?, price_inr),
-        trial_ends_at = ?,
-        current_period_end = ?
-      WHERE gym_id = ?
+        status = COALESCE($1, status),
+        billing_cycle = COALESCE($2, billing_cycle),
+        price_inr = COALESCE($3, price_inr),
+        trial_ends_at = $4,
+        current_period_end = $5
+      WHERE gym_id = $6
       `,
       [
         input.status ?? null,
@@ -549,8 +546,8 @@ export const platformRepository = {
     );
 
     if (input.status) {
-      await query<ResultSetHeader>(
-        `UPDATE gyms SET subscription_status = ? WHERE id = ?`,
+      await execute(
+        `UPDATE gyms SET subscription_status = $1 WHERE id = $2`,
         [input.status, input.gymId],
       );
     }
@@ -568,7 +565,7 @@ export const platformRepository = {
   },
 
   async listInvoices() {
-    return query<RowDataPacket[]>(
+    return query(
       `
       SELECT pi.*, g.name AS gym_name
       FROM platform_invoices pi
@@ -580,7 +577,7 @@ export const platformRepository = {
   },
 
   async listPayments() {
-    return query<RowDataPacket[]>(
+    return query(
       `
       SELECT pp.*, g.name AS gym_name, pi.invoice_no
       FROM platform_payments pp
@@ -593,7 +590,7 @@ export const platformRepository = {
   },
 
   async listUsers() {
-    return query<RowDataPacket[]>(
+    return query(
       `
       SELECT
         u.id,
@@ -603,7 +600,7 @@ export const platformRepository = {
         u.full_name,
         u.phone,
         u.is_active,
-        GROUP_CONCAT(r.name ORDER BY r.name SEPARATOR ',') AS roles_csv,
+        string_agg(r.name, ',' ORDER BY r.name) AS roles_csv,
         u.created_at
       FROM users u
       LEFT JOIN gyms g ON g.id = u.gym_id
@@ -618,25 +615,26 @@ export const platformRepository = {
 
   async updateUserRoles(input: { actorUserId: string | null; userId: string; roles: string[] }) {
     return withTransaction(async (connection) => {
-      const [roleRows] = await connection.query<RowDataPacket[]>(
-        `SELECT id, name FROM roles WHERE name IN (?)`,
+      const roleResult = await connection.query(
+        `SELECT id, name FROM roles WHERE name = ANY($1)`,
         [input.roles],
       );
+      const roleRows = roleResult.rows;
 
-      await connection.query<ResultSetHeader>(`DELETE FROM user_role_assignments WHERE user_id = ?`, [input.userId]);
+      await connection.query(`DELETE FROM user_role_assignments WHERE user_id = $1`, [input.userId]);
 
       for (const role of roleRows) {
-        await connection.query<ResultSetHeader>(
-          `INSERT INTO user_role_assignments (id, user_id, role_id) VALUES (?, ?, ?)`,
+        await connection.query(
+          `INSERT INTO user_role_assignments (id, user_id, role_id) VALUES ($1, $2, $3)`,
           [makeId(), input.userId, role.id],
         );
       }
 
-      await connection.query<ResultSetHeader>(
+      await connection.query(
         `
         INSERT INTO platform_audit_logs
           (id, actor_user_id, action_name, entity_type, entity_id, payload_json)
-        VALUES (?, ?, 'user_roles_updated', 'user', ?, CAST(? AS JSON))
+        VALUES ($1, $2, 'user_roles_updated', 'user', $3, $4)
         `,
         [makeId(), input.actorUserId, input.userId, JSON.stringify({ roles: input.roles })],
       );
@@ -646,18 +644,18 @@ export const platformRepository = {
   },
 
   async findGymOwnerAdmin(gymId: string) {
-    const rows = await query<RowDataPacket[]>(
+    const rows = await query(
       `
       SELECT
         u.id,
         u.gym_id,
         u.email,
         u.full_name,
-        GROUP_CONCAT(r.name ORDER BY r.name SEPARATOR ',') AS roles_csv
+        string_agg(r.name, ',' ORDER BY r.name) AS roles_csv
       FROM users u
       JOIN user_role_assignments ura ON ura.user_id = u.id
       JOIN roles r ON r.id = ura.role_id
-      WHERE u.gym_id = ? AND r.name = 'admin' AND u.is_active = 1
+      WHERE u.gym_id = $1 AND r.name = 'admin' AND u.is_active = TRUE
       GROUP BY u.id
       ORDER BY u.created_at ASC
       LIMIT 1
@@ -676,10 +674,10 @@ export const platformRepository = {
   }) {
     const id = makeId();
 
-    await query<ResultSetHeader>(
+    await execute(
       `
       INSERT INTO impersonation_sessions (id, actor_user_id, target_user_id, gym_id, reason)
-      VALUES (?, ?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4, $5)
       `,
       [id, input.actorUserId, input.targetUserId, input.gymId, input.reason ?? null],
     );
@@ -697,8 +695,8 @@ export const platformRepository = {
   },
 
   async endImpersonationSession(input: { actorUserId: string; sessionId: string }) {
-    await query<ResultSetHeader>(
-      `UPDATE impersonation_sessions SET ended_at = NOW() WHERE id = ? AND actor_user_id = ? AND ended_at IS NULL`,
+    await execute(
+      `UPDATE impersonation_sessions SET ended_at = NOW() WHERE id = $1 AND actor_user_id = $2 AND ended_at IS NULL`,
       [input.sessionId, input.actorUserId],
     );
 
@@ -714,7 +712,7 @@ export const platformRepository = {
   },
 
   async listAudit() {
-    return query<RowDataPacket[]>(
+    return query(
       `
       SELECT
         pal.*,
@@ -730,7 +728,7 @@ export const platformRepository = {
   },
 
   async listSupportIssues() {
-    return query<RowDataPacket[]>(
+    return query(
       `
       SELECT
         pin.*,
@@ -755,11 +753,11 @@ export const platformRepository = {
   }) {
     const id = makeId();
 
-    await query<ResultSetHeader>(
+    await execute(
       `
       INSERT INTO platform_issue_notes
         (id, gym_id, actor_user_id, title, body, status, priority)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
       `,
       [
         id,
@@ -781,7 +779,7 @@ export const platformRepository = {
       payload: { title: input.title, status: input.status, priority: input.priority },
     });
 
-    const rows = await query<RowDataPacket[]>(`SELECT * FROM platform_issue_notes WHERE id = ? LIMIT 1`, [id]);
+    const rows = await query(`SELECT * FROM platform_issue_notes WHERE id = $1 LIMIT 1`, [id]);
     return rows[0] ?? null;
   },
 };

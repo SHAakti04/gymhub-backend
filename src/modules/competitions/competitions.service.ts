@@ -37,13 +37,13 @@ export const competitionsService = {
   async list(gymId: string) {
     const rows = await competitionsRepository.listForGym(gymId);
     const participants = await competitionsRepository.listParticipants(rows.map((r) => r.id));
-    return rows.map((row) => mapCompetition(row, participants));
+    return (rows as CompetitionRow[]).map((row) => mapCompetition(row, participants as ParticipantRow[]));
   },
 
   async listActive(gymId: string) {
     const rows = await competitionsRepository.listActiveForGym(gymId);
     const participants = await competitionsRepository.listParticipants(rows.map((r) => r.id));
-    return rows.map((row) => mapCompetition(row, participants));
+    return (rows as CompetitionRow[]).map((row) => mapCompetition(row, participants as ParticipantRow[]));
   },
 
   async getLeaderboard(id: string, gymId: string) {
@@ -52,7 +52,7 @@ export const competitionsService = {
       throw new AppError(404, "NOT_FOUND", "Competition not found");
     }
     const participants = await competitionsRepository.listParticipants([id]);
-    return participants.map(mapParticipant).sort((a, b) => b.score - a.score);
+    return (participants as ParticipantRow[]).map(mapParticipant).sort((a, b) => b.score - a.score);
   },
 
   async create(
@@ -63,7 +63,7 @@ export const competitionsService = {
       throw new AppError(400, "VALIDATION_ERROR", "Name is required");
     }
     const row = await competitionsRepository.create({ gymId, ...input });
-    return mapCompetition(row!, []);
+    return mapCompetition(row as CompetitionRow, []);
   },
 
   async update(
@@ -83,7 +83,7 @@ export const competitionsService = {
       throw new AppError(404, "NOT_FOUND", "Competition not found");
     }
     const participants = await competitionsRepository.listParticipants([id]);
-    return mapCompetition(row, participants);
+    return mapCompetition(row as CompetitionRow, participants as ParticipantRow[]);
   },
 
   async remove(id: string, gymId: string) {

@@ -1,10 +1,9 @@
-import type { RowDataPacket } from "mysql2";
 import { query } from "../config/db.js";
 import { logger } from "../config/logger.js";
 import { whatsappService } from "../modules/whatsapp/whatsapp.service.js";
 
 export async function runExpiryReminderJob() {
-  const gyms = await query<RowDataPacket[]>(
+  const gyms = await query(
     "SELECT id, name FROM gyms WHERE status = 'active' ORDER BY created_at ASC",
   );
 

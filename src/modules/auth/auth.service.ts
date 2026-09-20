@@ -124,7 +124,7 @@ async register(input: {
 
     const roles = tokenRecord.roles_csv ? String(tokenRecord.roles_csv).split(",") : ["member"];
     const user = {
-      id: tokenRecord.user_id,
+      id: tokenRecord.user_id!,
       email: tokenRecord.email,
       name: tokenRecord.full_name,
       phone: null,

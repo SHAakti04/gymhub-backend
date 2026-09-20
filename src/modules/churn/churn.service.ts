@@ -45,7 +45,7 @@ function buildRiskScore(row: ChurnMetricRow): PersistedChurnScore {
 export const churnService = {
   async refreshGym(gymId: string) {
     const metrics = await churnRepository.getMemberMetrics(gymId);
-    const scores = metrics.map(buildRiskScore);
+    const scores = (metrics as ChurnMetricRow[]).map(buildRiskScore);
     const result = await churnRepository.replaceScoresForGym(gymId, scores);
 
     return {

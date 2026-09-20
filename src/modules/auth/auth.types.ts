@@ -1,5 +1,6 @@
 export interface AuthUserRecord {
   id: string;
+  user_id?: string;
   gym_id: string | null;
   member_id: string | null;
   email: string;
@@ -8,6 +9,8 @@ export interface AuthUserRecord {
   phone: string | null;
   is_active: number;
   roles_csv: string | null;
+  revoked_at?: string | null;
+  expires_at?: string;
 }
 
 export interface AuthResponse {

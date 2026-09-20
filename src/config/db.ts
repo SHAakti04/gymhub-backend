@@ -25,7 +25,7 @@ export async function assertDbConnection() {
   }
 }
 
-export async function query<T = Record<string, unknown>[]>(sql: string, params: unknown[] = []) {
+export async function query<T = Record<string, any>[]>(sql: string, params: unknown[] = []) {
   const result = await pool.query(sql, params);
   return result.rows as unknown as T;
 }

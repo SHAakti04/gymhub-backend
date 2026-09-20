@@ -29,7 +29,7 @@ function mapProduct(row: ProductRow) {
 export const productsService = {
   async list(gymId: string) {
     const rows = await productsRepository.listForGym(gymId);
-    return rows.map(mapProduct);
+    return (rows as ProductRow[]).map(mapProduct);
   },
 
   async get(id: string, gymId: string) {
@@ -37,7 +37,7 @@ export const productsService = {
     if (!row) {
       throw new AppError(404, "NOT_FOUND", "Product not found");
     }
-    return mapProduct(row);
+    return mapProduct(row as ProductRow);
   },
 
   async create(
@@ -60,7 +60,7 @@ export const productsService = {
       throw new AppError(400, "VALIDATION_ERROR", "At least one image is required");
     }
     const row = await productsRepository.create({ gymId, ...input });
-    return mapProduct(row!);
+    return mapProduct(row as ProductRow);
   },
 
   async update(
@@ -81,7 +81,7 @@ export const productsService = {
     if (!row) {
       throw new AppError(404, "NOT_FOUND", "Product not found");
     }
-    return mapProduct(row);
+    return mapProduct(row as ProductRow);
   },
 
   async remove(id: string, gymId: string) {
@@ -163,12 +163,12 @@ export const productsService = {
 
   async listOrdersForGym(gymId: string) {
     const orders = await productsRepository.listOrdersForGym(gymId);
-    return Promise.all(orders.map((order) => this.attachItems(order)));
+    return Promise.all(orders.map((order) => this.attachItems(order as OrderRow)));
   },
 
   async listMyOrders(gymId: string, memberId: string) {
     const orders = await productsRepository.listOrdersForMember(gymId, memberId);
-    return Promise.all(orders.map((order) => this.attachItems(order)));
+    return Promise.all(orders.map((order) => this.attachItems(order as OrderRow)));
   },
 
   async getOrder(gymId: string, memberId: string | null, id: string, isAdmin: boolean) {
@@ -179,7 +179,7 @@ export const productsService = {
     if (!isAdmin && order.member_id !== memberId) {
       throw new AppError(403, "FORBIDDEN", "You cannot view this order");
     }
-    return this.attachItems(order);
+    return this.attachItems(order as OrderRow);
   },
 
   async fulfillOrder(gymId: string, id: string) {
@@ -188,7 +188,7 @@ export const productsService = {
       throw new AppError(404, "NOT_FOUND", "Order not found");
     }
     const updated = await productsRepository.fulfillOrder(id, gymId);
-    return this.attachItems(updated!);
+    return this.attachItems(updated as OrderRow);
   },
 
   async cancelOrder(gymId: string, memberId: string | null, id: string, isAdmin: boolean) {
@@ -204,6 +204,6 @@ export const productsService = {
     }
     await productsRepository.cancelOrderAndRestock(id, gymId);
     const updated = await productsRepository.getOrderById(id, gymId);
-    return this.attachItems(updated!);
+    return this.attachItems(updated as OrderRow);
   },
 };

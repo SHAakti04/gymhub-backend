@@ -42,12 +42,12 @@ async function withDuplicateGuard<T>(work: () => Promise<T>): Promise<T> {
 export const offersService = {
   async list(gymId: string) {
     const rows = await offersRepository.listForGym(gymId);
-    return rows.map(mapOffer);
+    return (rows as OfferRow[]).map(mapOffer);
   },
 
   async listActive(gymId: string) {
     const rows = await offersRepository.listActiveForGym(gymId);
-    return rows.map(mapOffer);
+    return (rows as OfferRow[]).map(mapOffer);
   },
 
   async create(
@@ -75,7 +75,7 @@ export const offersService = {
         appliesTo: input.appliesTo,
       }),
     );
-    return mapOffer(row!);
+    return mapOffer(row as OfferRow);
   },
 
   async update(
@@ -114,7 +114,7 @@ export const offersService = {
     if (!row) {
       throw new AppError(404, "NOT_FOUND", "Offer not found");
     }
-    return mapOffer(row);
+    return mapOffer(row as OfferRow);
   },
 
   async remove(id: string, gymId: string) {

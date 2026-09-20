@@ -1,5 +1,4 @@
 import type { NextFunction, Request, Response } from "express";
-import type { RowDataPacket } from "mysql2";
 import { query } from "../../config/db.js";
 import { AppError } from "../errors/app-error.js";
 
@@ -8,16 +7,16 @@ function isSuper(req: Request) {
 }
 
 export async function getEnabledFeaturesForGym(gymId: string) {
-  const rows = await query<RowDataPacket[]>(
+  const rows = await query(
     `
     SELECT
       fr.feature_key,
       fr.name,
-      COALESCE(gff.enabled, 0) AS enabled
+      COALESCE(gff.enabled, FALSE) AS enabled
     FROM feature_registry fr
     LEFT JOIN gym_feature_flags gff
       ON gff.feature_key = fr.feature_key
-      AND gff.gym_id = ?
+      AND gff.gym_id = $1
     ORDER BY fr.name ASC
     `,
     [gymId],
@@ -31,8 +30,8 @@ export async function getEnabledFeaturesForGym(gymId: string) {
 }
 
 export async function assertGymFeatureEnabled(gymId: string, featureKey: string) {
-  const gymRows = await query<RowDataPacket[]>(
-    `SELECT id, status, subscription_status FROM gyms WHERE id = ? LIMIT 1`,
+  const gymRows = await query(
+    `SELECT id, status, subscription_status FROM gyms WHERE id = $1 LIMIT 1`,
     [gymId],
   );
 
@@ -45,14 +44,14 @@ export async function assertGymFeatureEnabled(gymId: string, featureKey: string)
     throw new AppError(403, "GYM_SUSPENDED", "This gym subscription is suspended");
   }
 
-  const rows = await query<RowDataPacket[]>(
+  const rows = await query(
     `
-    SELECT COALESCE(gff.enabled, 0) AS enabled
+    SELECT COALESCE(gff.enabled, FALSE) AS enabled
     FROM feature_registry fr
     LEFT JOIN gym_feature_flags gff
       ON gff.feature_key = fr.feature_key
-      AND gff.gym_id = ?
-    WHERE fr.feature_key = ?
+      AND gff.gym_id = $1
+    WHERE fr.feature_key = $2
     LIMIT 1
     `,
     [gymId, featureKey],

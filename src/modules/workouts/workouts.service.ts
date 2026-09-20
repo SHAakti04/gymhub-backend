@@ -38,7 +38,7 @@ export const workoutsService = {
     const result = {} as Record<PlanKey, { id: string | null; exercises: WorkoutExercise[] }>;
     for (const key of PLAN_KEYS) {
       const row = byKey.get(key);
-      result[key] = row ? { id: row.id, exercises: parseContent(row) } : { id: null, exercises: DEFAULT_PLANS[key] };
+      result[key] = row ? { id: row.id, exercises: parseContent(row as WorkoutPlanRow) } : { id: null, exercises: DEFAULT_PLANS[key] };
     }
     return result;
   },
@@ -56,7 +56,7 @@ export const workoutsService = {
       exercises,
       createdByUserId: userId,
     });
-    return mapPlan(row!);
+    return mapPlan(row as WorkoutPlanRow);
   },
 
   async resetPresets(gymId: string) {
@@ -68,12 +68,12 @@ export const workoutsService = {
     const exercises = buildGeneratedPlan(input.goal, input.level);
     const title = `${input.goal.replace("_", " ")} plan (${input.level})`;
     const row = await workoutsRepository.createMemberPlan({ gymId, memberId, title, goal: input.goal, exercises });
-    return mapPlan(row!);
+    return mapPlan(row as WorkoutPlanRow);
   },
 
   async getMyPlans(gymId: string, memberId: string) {
     const rows = await workoutsRepository.listMemberPlans(gymId, memberId);
-    return rows.map(mapPlan);
+    return (rows as WorkoutPlanRow[]).map(mapPlan);
   },
 
   async getPlan(gymId: string, id: string) {
@@ -81,7 +81,7 @@ export const workoutsService = {
     if (!row) {
       throw new AppError(404, "NOT_FOUND", "Workout plan not found");
     }
-    return mapPlan(row);
+    return mapPlan(row as WorkoutPlanRow);
   },
 
   async toggleLog(
