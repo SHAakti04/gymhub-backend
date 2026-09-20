@@ -1,13 +1,12 @@
-import type { RowDataPacket } from "mysql2";
 import { query } from "../../config/db.js";
 
 export const paymentSettingsRepository = {
   async getPublic(gymId: string) {
-    const rows = await query<RowDataPacket[]>(
+    const rows = await query(
       `
       SELECT gym_id, upi_id, payee_name, qr_image_url, instructions, is_active
       FROM gym_payment_settings
-      WHERE gym_id = ? AND is_active = 1
+      WHERE gym_id = $1 AND is_active = TRUE
       LIMIT 1
       `,
       [gymId]
@@ -17,11 +16,11 @@ export const paymentSettingsRepository = {
   },
 
   async getAdmin(gymId: string) {
-    const rows = await query<RowDataPacket[]>(
+    const rows = await query(
       `
       SELECT gym_id, upi_id, payee_name, qr_image_url, instructions, is_active
       FROM gym_payment_settings
-      WHERE gym_id = ?
+      WHERE gym_id = $1
       LIMIT 1
       `,
       [gymId]
@@ -42,13 +41,13 @@ export const paymentSettingsRepository = {
       `
       INSERT INTO gym_payment_settings
         (gym_id, upi_id, payee_name, qr_image_url, instructions, is_active)
-      VALUES (?, ?, ?, ?, ?, ?)
-      ON DUPLICATE KEY UPDATE
-        upi_id = VALUES(upi_id),
-        payee_name = VALUES(payee_name),
-        qr_image_url = VALUES(qr_image_url),
-        instructions = VALUES(instructions),
-        is_active = VALUES(is_active)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      ON CONFLICT (gym_id) DO UPDATE SET
+        upi_id = EXCLUDED.upi_id,
+        payee_name = EXCLUDED.payee_name,
+        qr_image_url = EXCLUDED.qr_image_url,
+        instructions = EXCLUDED.instructions,
+        is_active = EXCLUDED.is_active
       `,
       [
         input.gymId,
@@ -56,7 +55,7 @@ export const paymentSettingsRepository = {
         input.payeeName,
         input.qrImageUrl,
         input.instructions,
-        input.isActive ? 1 : 0
+        input.isActive
       ]
     );
 

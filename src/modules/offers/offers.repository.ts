@@ -1,8 +1,7 @@
-import type { RowDataPacket } from "mysql2";
 import { query } from "../../config/db.js";
 import { makeId } from "../../common/utils/crypto.util.js";
 
-export interface OfferRow extends RowDataPacket {
+export interface OfferRow {
   id: string;
   gym_id: string;
   code: string;
@@ -10,31 +9,31 @@ export interface OfferRow extends RowDataPacket {
   discount_pct: string;
   valid_from: string;
   valid_to: string;
-  active: number;
+  active: boolean;
   applies_to: "all" | "new" | "renewal";
   created_at: string;
 }
 
 export const offersRepository = {
   async listForGym(gymId: string) {
-    return query<OfferRow[]>(`SELECT * FROM offers WHERE gym_id = ? ORDER BY created_at DESC`, [gymId]);
+    return query(`SELECT * FROM offers WHERE gym_id = $1 ORDER BY created_at DESC`, [gymId]);
   },
 
   async listActiveForGym(gymId: string) {
-    return query<OfferRow[]>(
-      `SELECT * FROM offers WHERE gym_id = ? AND active = 1 AND valid_from <= CURDATE() AND valid_to >= CURDATE() ORDER BY valid_to ASC`,
+    return query(
+      `SELECT * FROM offers WHERE gym_id = $1 AND active = TRUE AND valid_from <= CURRENT_DATE AND valid_to >= CURRENT_DATE ORDER BY valid_to ASC`,
       [gymId],
     );
   },
 
   async getById(id: string, gymId: string) {
-    const rows = await query<OfferRow[]>(`SELECT * FROM offers WHERE id = ? AND gym_id = ? LIMIT 1`, [id, gymId]);
+    const rows = await query(`SELECT * FROM offers WHERE id = $1 AND gym_id = $2 LIMIT 1`, [id, gymId]);
     return rows[0] ?? null;
   },
 
   async getActiveByCode(gymId: string, code: string) {
-    const rows = await query<OfferRow[]>(
-      `SELECT * FROM offers WHERE gym_id = ? AND code = ? AND active = 1 AND valid_from <= CURDATE() AND valid_to >= CURDATE() LIMIT 1`,
+    const rows = await query(
+      `SELECT * FROM offers WHERE gym_id = $1 AND code = $2 AND active = TRUE AND valid_from <= CURRENT_DATE AND valid_to >= CURRENT_DATE LIMIT 1`,
       [gymId, code],
     );
     return rows[0] ?? null;
@@ -53,7 +52,7 @@ export const offersRepository = {
     const id = makeId();
     await query(
       `INSERT INTO offers (id, gym_id, code, title, discount_pct, valid_from, valid_to, active, applies_to, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())`,
       [
         id,
         input.gymId,
@@ -62,7 +61,7 @@ export const offersRepository = {
         input.discountPct,
         input.validFrom,
         input.validTo,
-        input.active ? 1 : 0,
+        input.active,
         input.appliesTo,
       ],
     );
@@ -85,22 +84,26 @@ export const offersRepository = {
     const fields: string[] = [];
     const values: unknown[] = [];
 
-    if (patch.code !== undefined) { fields.push("code = ?"); values.push(patch.code); }
-    if (patch.title !== undefined) { fields.push("title = ?"); values.push(patch.title); }
-    if (patch.discountPct !== undefined) { fields.push("discount_pct = ?"); values.push(patch.discountPct); }
-    if (patch.validFrom !== undefined) { fields.push("valid_from = ?"); values.push(patch.validFrom); }
-    if (patch.validTo !== undefined) { fields.push("valid_to = ?"); values.push(patch.validTo); }
-    if (patch.active !== undefined) { fields.push("active = ?"); values.push(patch.active ? 1 : 0); }
-    if (patch.appliesTo !== undefined) { fields.push("applies_to = ?"); values.push(patch.appliesTo); }
+    if (patch.code !== undefined) { fields.push("code"); values.push(patch.code); }
+    if (patch.title !== undefined) { fields.push("title"); values.push(patch.title); }
+    if (patch.discountPct !== undefined) { fields.push("discount_pct"); values.push(patch.discountPct); }
+    if (patch.validFrom !== undefined) { fields.push("valid_from"); values.push(patch.validFrom); }
+    if (patch.validTo !== undefined) { fields.push("valid_to"); values.push(patch.validTo); }
+    if (patch.active !== undefined) { fields.push("active"); values.push(patch.active); }
+    if (patch.appliesTo !== undefined) { fields.push("applies_to"); values.push(patch.appliesTo); }
 
     if (fields.length === 0) return this.getById(id, gymId);
 
-    await query(`UPDATE offers SET ${fields.join(", ")} WHERE id = ? AND gym_id = ?`, [...values, id, gymId]);
+    const setClauses = fields.map((f, i) => `${f} = $${i + 1}`).join(", ");
+    await query(
+      `UPDATE offers SET ${setClauses} WHERE id = $${fields.length + 1} AND gym_id = $${fields.length + 2}`,
+      [...values, id, gymId],
+    );
     return this.getById(id, gymId);
   },
 
   async remove(id: string, gymId: string) {
-    await query(`DELETE FROM offers WHERE id = ? AND gym_id = ?`, [id, gymId]);
+    await query(`DELETE FROM offers WHERE id = $1 AND gym_id = $2`, [id, gymId]);
   },
 
   async recordRedemption(input: {
@@ -115,7 +118,7 @@ export const offersRepository = {
     await query(
       `INSERT INTO offer_redemptions
        (id, offer_id, gym_id, member_id, context_type, context_id, discount_pct, discount_amount, redeemed_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())`,
       [
         makeId(),
         input.offerId,

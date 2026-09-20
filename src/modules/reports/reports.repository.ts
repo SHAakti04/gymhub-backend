@@ -1,4 +1,3 @@
-import type { RowDataPacket } from "mysql2";
 import { query } from "../../config/db.js";
 
 function percentChange(current: number, previous: number) {
@@ -19,73 +18,75 @@ export const reportsRepository = {
       attendanceToday,
       leads
     ] = await Promise.all([
-      query<RowDataPacket[]>("SELECT COUNT(*) AS total FROM members WHERE gym_id = ?", [gymId]),
-      query<RowDataPacket[]>("SELECT COUNT(*) AS total FROM members WHERE gym_id = ? AND status = 'active'", [gymId]),
-      query<RowDataPacket[]>(
-        "SELECT COUNT(*) AS total FROM members WHERE gym_id = ? AND join_date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')",
+      query("SELECT COUNT(*) AS total FROM members WHERE gym_id = $1", [gymId]),
+      query("SELECT COUNT(*) AS total FROM members WHERE gym_id = $1 AND status = 'active'", [gymId]),
+      query(
+        "SELECT COUNT(*) AS total FROM members WHERE gym_id = $1 AND join_date >= DATE_TRUNC('month', CURRENT_DATE)::date",
         [gymId]
       ),
-      query<RowDataPacket[]>(
+      query(
         `
         SELECT COUNT(*) AS total
         FROM members
-        WHERE gym_id = ?
-          AND join_date >= DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH), '%Y-%m-01')
-          AND join_date < DATE_FORMAT(CURDATE(), '%Y-%m-01')
+        WHERE gym_id = $1
+          AND join_date >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')::date
+          AND join_date < DATE_TRUNC('month', CURRENT_DATE)::date
         `,
         [gymId]
       ),
-      query<RowDataPacket[]>("SELECT COALESCE(SUM(amount), 0) AS total FROM payments WHERE gym_id = ? AND status = 'paid'", [gymId]),
-      query<RowDataPacket[]>(
-        "SELECT COALESCE(SUM(amount), 0) AS total FROM payments WHERE gym_id = ? AND status = 'paid' AND paid_at >= DATE_FORMAT(CURDATE(), '%Y-%m-01')",
+      query("SELECT COALESCE(SUM(amount), 0) AS total FROM payments WHERE gym_id = $1 AND status = 'paid'", [gymId]),
+      query(
+        "SELECT COALESCE(SUM(amount), 0) AS total FROM payments WHERE gym_id = $1 AND status = 'paid' AND paid_at >= DATE_TRUNC('month', CURRENT_DATE)",
         [gymId]
       ),
-      query<RowDataPacket[]>(
+      query(
         `
         SELECT COALESCE(SUM(amount), 0) AS total
         FROM payments
-        WHERE gym_id = ?
+        WHERE gym_id = $1
           AND status = 'paid'
-          AND paid_at >= DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH), '%Y-%m-01')
-          AND paid_at < DATE_FORMAT(CURDATE(), '%Y-%m-01')
+          AND paid_at >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
+          AND paid_at < DATE_TRUNC('month', CURRENT_DATE)
         `,
         [gymId]
       ),
-      query<RowDataPacket[]>("SELECT COUNT(*) AS count FROM attendance_sessions WHERE gym_id = ? AND attendance_date = CURDATE()", [gymId]),
-      query<RowDataPacket[]>("SELECT COUNT(*) AS total FROM leads WHERE gym_id = ?", [gymId])
+      query("SELECT COUNT(*) AS count FROM attendance_sessions WHERE gym_id = $1 AND attendance_date = CURRENT_DATE", [gymId]),
+      query("SELECT COUNT(*) AS total FROM leads WHERE gym_id = $1", [gymId])
     ]);
 
-    const newMembersThisMonth = Number(membersThisMonth[0]?.total ?? 0);
-    const newMembersLastMonth = Number(membersLastMonth[0]?.total ?? 0);
-    const thisMonthRevenue = Number(revenueThisMonth[0]?.total ?? 0);
-    const lastMonthRevenue = Number(revenueLastMonth[0]?.total ?? 0);
+    const r = (arr: unknown[]) => arr[0] as Record<string, unknown> | undefined;
+
+    const newMembersThisMonth = Number(r(membersThisMonth)?.total ?? 0);
+    const newMembersLastMonth = Number(r(membersLastMonth)?.total ?? 0);
+    const thisMonthRevenue = Number(r(revenueThisMonth)?.total ?? 0);
+    const lastMonthRevenue = Number(r(revenueLastMonth)?.total ?? 0);
 
     return {
-      members: Number(totalMembers[0]?.total ?? 0),
-      totalMembers: Number(totalMembers[0]?.total ?? 0),
-      activeMembers: Number(activeMembers[0]?.total ?? 0),
+      members: Number(r(totalMembers)?.total ?? 0),
+      totalMembers: Number(r(totalMembers)?.total ?? 0),
+      activeMembers: Number(r(activeMembers)?.total ?? 0),
       newMembersThisMonth,
       newMembersLastMonth,
       memberGrowthPercent: percentChange(newMembersThisMonth, newMembersLastMonth),
-      revenue: Number(totalRevenue[0]?.total ?? 0),
-      totalRevenue: Number(totalRevenue[0]?.total ?? 0),
+      revenue: Number(r(totalRevenue)?.total ?? 0),
+      totalRevenue: Number(r(totalRevenue)?.total ?? 0),
       revenueThisMonth: thisMonthRevenue,
       revenueLastMonth: lastMonthRevenue,
       revenueGrowthPercent: percentChange(thisMonthRevenue, lastMonthRevenue),
-      todayAttendance: Number(attendanceToday[0]?.count ?? 0),
-      leads: Number(leads[0]?.total ?? 0)
+      todayAttendance: Number(r(attendanceToday)?.count ?? 0),
+      leads: Number(r(leads)?.total ?? 0)
     };
   },
 
   async revenue(gymId: string) {
-    return query<RowDataPacket[]>(
+    return query(
       `
       SELECT month_key, total
       FROM (
-        SELECT DATE_FORMAT(paid_at, '%Y-%m') AS month_key, SUM(amount) AS total
+        SELECT TO_CHAR(paid_at, 'YYYY-MM') AS month_key, SUM(amount) AS total
         FROM payments
-        WHERE gym_id = ? AND status = 'paid'
-        GROUP BY DATE_FORMAT(paid_at, '%Y-%m')
+        WHERE gym_id = $1 AND status = 'paid'
+        GROUP BY TO_CHAR(paid_at, 'YYYY-MM')
         ORDER BY month_key DESC
         LIMIT 12
       ) monthly_revenue
@@ -96,14 +97,14 @@ export const reportsRepository = {
   },
 
   async growth(gymId: string) {
-    return query<RowDataPacket[]>(
+    return query(
       `
       SELECT month_key, total
       FROM (
-        SELECT DATE_FORMAT(join_date, '%Y-%m') AS month_key, COUNT(*) AS total
+        SELECT TO_CHAR(join_date, 'YYYY-MM') AS month_key, COUNT(*) AS total
         FROM members
-        WHERE gym_id = ? AND join_date IS NOT NULL
-        GROUP BY DATE_FORMAT(join_date, '%Y-%m')
+        WHERE gym_id = $1 AND join_date IS NOT NULL
+        GROUP BY TO_CHAR(join_date, 'YYYY-MM')
         ORDER BY month_key DESC
         LIMIT 12
       ) monthly_members
@@ -114,13 +115,13 @@ export const reportsRepository = {
   },
 
   async attendance(gymId: string) {
-    return query<RowDataPacket[]>(
+    return query(
       `
       SELECT attendance_date, total
       FROM (
         SELECT attendance_date, COUNT(*) AS total
         FROM attendance_sessions
-        WHERE gym_id = ?
+        WHERE gym_id = $1
         GROUP BY attendance_date
         ORDER BY attendance_date DESC
         LIMIT 30
@@ -132,11 +133,11 @@ export const reportsRepository = {
   },
 
   async churn(gymId: string) {
-    return query<RowDataPacket[]>(
+    return query(
       `
       SELECT risk_band, COUNT(*) AS total
       FROM churn_scores
-      WHERE gym_id = ?
+      WHERE gym_id = $1
       GROUP BY risk_band
       ORDER BY total DESC
       `,

@@ -1,8 +1,6 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import mysql from "mysql2/promise";
-import { env } from "../config/env.js";
 import { pool } from "../config/db.js";
 import { logger } from "../config/logger.js";
 
@@ -15,7 +13,7 @@ function stripSqlLineComments(sql: string) {
     .split("\n")
     .filter((line) => {
       const trimmed = line.trim();
-      return trimmed && !trimmed.startsWith("--") && !trimmed.startsWith("#");
+      return trimmed && !trimmed.startsWith("--");
     })
     .join("\n");
 }
@@ -25,7 +23,7 @@ function splitSqlStatements(sql: string) {
   const statements: string[] = [];
 
   let current = "";
-  let quote: "'" | '"' | "`" | null = null;
+  let quote: "'" | '"' | null = null;
   let escaped = false;
 
   for (const char of cleaned) {
@@ -46,7 +44,7 @@ function splitSqlStatements(sql: string) {
       continue;
     }
 
-    if (char === "'" || char === '"' || char === "`") {
+    if (char === "'" || char === '"') {
       quote = char;
       continue;
     }
@@ -64,38 +62,17 @@ function splitSqlStatements(sql: string) {
   return statements;
 }
 
-async function ensureDatabaseExists() {
-  const bootstrap = await mysql.createConnection({
-    host: env.DB_HOST,
-    port: env.DB_PORT,
-    user: env.DB_USER,
-    password: env.DB_PASSWORD,
-    multipleStatements: false
-  });
-
-  try {
-    await bootstrap.query(
-      `CREATE DATABASE IF NOT EXISTS \`${env.DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
-    );
-    logger.info(`Database ${env.DB_NAME} is ready`);
-  } finally {
-    await bootstrap.end();
-  }
-}
-
 async function run() {
-  await ensureDatabaseExists();
-
   await pool.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
-      id INT AUTO_INCREMENT PRIMARY KEY,
+      id SERIAL PRIMARY KEY,
       filename VARCHAR(255) NOT NULL UNIQUE,
       executed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
-  const [executedRows] = await pool.query("SELECT filename FROM schema_migrations");
-  const executed = new Set((executedRows as Array<{ filename: string }>).map((row) => row.filename));
+  const executedResult = await pool.query("SELECT filename FROM schema_migrations");
+  const executed = new Set(executedResult.rows.map((row: { filename: string }) => row.filename));
 
   const files = (await readdir(migrationsDir)).filter((file) => file.endsWith(".sql")).sort();
 
@@ -103,25 +80,21 @@ async function run() {
     if (executed.has(file)) continue;
 
     const sql = await readFile(path.join(migrationsDir, file), "utf8");
-    const statements = splitSqlStatements(sql);
-    const connection = await pool.getConnection();
+    const client = await pool.connect();
 
     try {
-      await connection.beginTransaction();
+      await client.query("BEGIN");
+      await client.query(sql);
+      await client.query("INSERT INTO schema_migrations (filename) VALUES ($1)", [file]);
+      await client.query("COMMIT");
 
-      for (const statement of statements) {
-        await connection.query(statement);
-      }
-
-      await connection.query("INSERT INTO schema_migrations (filename) VALUES (?)", [file]);
-      await connection.commit();
-
-      logger.info(`Applied migration ${file} (${statements.length} statements)`);
+      logger.info(`Applied migration: ${file}`);
     } catch (error) {
-      await connection.rollback();
+      await client.query("ROLLBACK");
+      logger.error({ error, file }, `Migration failed: ${file}`);
       throw error;
     } finally {
-      connection.release();
+      client.release();
     }
   }
 

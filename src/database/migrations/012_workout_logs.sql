@@ -6,10 +6,10 @@ CREATE TABLE IF NOT EXISTS workout_logs (
   log_date DATE NOT NULL,
   exercise_index INT NOT NULL,
   exercise_name VARCHAR(150) NOT NULL,
-  completed TINYINT(1) NOT NULL DEFAULT 1,
-  completed_at DATETIME NOT NULL,
+  completed BOOLEAN NOT NULL DEFAULT TRUE,
+  completed_at TIMESTAMP NOT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE KEY uq_member_plan_date_exercise (member_id, workout_plan_id, log_date, exercise_index),
+  CONSTRAINT uq_member_plan_date_exercise UNIQUE (member_id, workout_plan_id, log_date, exercise_index),
   CONSTRAINT fk_workout_logs_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE,
   CONSTRAINT fk_workout_logs_plan FOREIGN KEY (workout_plan_id) REFERENCES workout_plans(id) ON DELETE CASCADE
 );

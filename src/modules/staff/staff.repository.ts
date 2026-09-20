@@ -1,4 +1,3 @@
-import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import { query, withTransaction } from "../../config/db.js";
 import { makeId } from "../../common/utils/crypto.util.js";
 import { AppError } from "../../common/errors/app-error.js";
@@ -44,18 +43,18 @@ const selectStaffSql = `
 
 export const staffRepository = {
   async list(gymId: string) {
-    return query<RowDataPacket[]>(
+    return query(
       `${selectStaffSql}
-       WHERE gym_id = ?
+       WHERE gym_id = $1
        ORDER BY created_at DESC`,
       [gymId],
     );
   },
 
   async publicTrainers(gymId = "nagpur") {
-    return query<RowDataPacket[]>(
+    return query(
       `${selectStaffSql}
-       WHERE gym_id = ?
+       WHERE gym_id = $1
          AND status = 'active'
        ORDER BY
          CASE
@@ -70,9 +69,9 @@ export const staffRepository = {
   },
 
   async findById(id: string, gymId: string) {
-    const rows = await query<RowDataPacket[]>(
+    const rows = await query(
       `${selectStaffSql}
-       WHERE id = ? AND gym_id = ?
+       WHERE id = $1 AND gym_id = $2
        LIMIT 1`,
       [id, gymId],
     );
@@ -88,29 +87,29 @@ export const staffRepository = {
       const staffId = makeId();
       const userId = makeId();
 
-      const [existingUsers] = await connection.query<RowDataPacket[]>(
-        "SELECT id FROM users WHERE LOWER(TRIM(email)) = ? LIMIT 1",
+      const existingResult = await connection.query(
+        "SELECT id FROM users WHERE LOWER(TRIM(email)) = $1 LIMIT 1",
         [input.email.trim().toLowerCase()],
       );
 
-      if (existingUsers[0]) {
+      if (existingResult.rows[0]) {
         throw new AppError(409, "EMAIL_ALREADY_EXISTS", "An account with this email already exists");
       }
 
-      const [roleRows] = await connection.query<RowDataPacket[]>(
+      const roleResult = await connection.query(
         "SELECT id FROM roles WHERE name = 'staff' LIMIT 1",
       );
 
-      const roleId = roleRows[0]?.id as string | undefined;
+      const roleId = roleResult.rows[0]?.id as string | undefined;
       if (!roleId) {
         throw new AppError(500, "ROLE_NOT_FOUND", "Role 'staff' is not configured");
       }
 
-      await connection.query<ResultSetHeader>(
+      await connection.query(
         `
         INSERT INTO users
           (id, gym_id, email, password_hash, full_name, phone, must_change_password)
-        VALUES (?, ?, ?, ?, ?, ?, 1)
+        VALUES ($1, $2, $3, $4, $5, $6, TRUE)
         `,
         [
           userId,
@@ -122,17 +121,17 @@ export const staffRepository = {
         ],
       );
 
-      await connection.query<ResultSetHeader>(
-        "INSERT INTO user_role_assignments (id, user_id, role_id) VALUES (?, ?, ?)",
+      await connection.query(
+        "INSERT INTO user_role_assignments (id, user_id, role_id) VALUES ($1, $2, $3)",
         [makeId(), userId, roleId],
       );
 
-      await connection.query<ResultSetHeader>(
+      await connection.query(
         `
         INSERT INTO staff
           (id, user_id, gym_id, name, email, phone, role_name, salary, status, join_date,
            avatar_url, specialty, public_bio, experience_years, certifications, instagram)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
         `,
         [
           staffId,
@@ -159,23 +158,23 @@ export const staffRepository = {
   },
 
   async update(id: string, gymId: string, input: Partial<StaffInput>) {
-    await query<ResultSetHeader>(
+    await query(
       `
       UPDATE staff
-      SET name = COALESCE(?, name),
-          email = COALESCE(?, email),
-          phone = COALESCE(?, phone),
-          role_name = COALESCE(?, role_name),
-          salary = COALESCE(?, salary),
-          status = COALESCE(?, status),
-          join_date = COALESCE(?, join_date),
-          avatar_url = COALESCE(?, avatar_url),
-          specialty = COALESCE(?, specialty),
-          public_bio = COALESCE(?, public_bio),
-          experience_years = COALESCE(?, experience_years),
-          certifications = COALESCE(?, certifications),
-          instagram = COALESCE(?, instagram)
-      WHERE id = ? AND gym_id = ?
+      SET name = COALESCE($1, name),
+          email = COALESCE($2, email),
+          phone = COALESCE($3, phone),
+          role_name = COALESCE($4, role_name),
+          salary = COALESCE($5, salary),
+          status = COALESCE($6, status),
+          join_date = COALESCE($7, join_date),
+          avatar_url = COALESCE($8, avatar_url),
+          specialty = COALESCE($9, specialty),
+          public_bio = COALESCE($10, public_bio),
+          experience_years = COALESCE($11, experience_years),
+          certifications = COALESCE($12, certifications),
+          instagram = COALESCE($13, instagram)
+      WHERE id = $14 AND gym_id = $15
       `,
       [
         input.name ?? null,

@@ -4,4 +4,4 @@ ALTER TABLE absence_reminders
   ADD COLUMN email_status VARCHAR(20) NOT NULL DEFAULT 'queued';
 
 ALTER TABLE absence_reminders
-  ADD UNIQUE KEY uq_absence_member_date (member_id, reminder_date);
+  ADD CONSTRAINT uq_absence_member_date UNIQUE (member_id, reminder_date);

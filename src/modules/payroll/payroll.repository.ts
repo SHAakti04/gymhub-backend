@@ -1,4 +1,3 @@
-import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import { randomUUID } from "node:crypto";
 import { query, withTransaction } from "../../config/db.js";
 
@@ -13,20 +12,20 @@ export interface PayrollInput {
 
 export const payrollRepository = {
   async list(gymId: string) {
-    return query<RowDataPacket[]>(
+    return query(
       `SELECT p.id, p.staff_id, s.name AS staff_name, s.email AS staff_email,
               p.amount, p.month_key, p.method, p.txn_ref, p.notes, p.paid_at, p.created_at
        FROM payroll_entries p
        JOIN staff s ON s.id = p.staff_id
-       WHERE p.gym_id = ?
+       WHERE p.gym_id = $1
        ORDER BY p.paid_at DESC`,
       [gymId],
     );
   },
 
   async findStaff(staffId: string, gymId: string) {
-    const rows = await query<RowDataPacket[]>(
-      `SELECT id, name FROM staff WHERE id = ? AND gym_id = ? LIMIT 1`,
+    const rows = await query(
+      `SELECT id, name FROM staff WHERE id = $1 AND gym_id = $2 LIMIT 1`,
       [staffId, gymId],
     );
     return rows[0] ?? null;
@@ -38,9 +37,9 @@ export const payrollRepository = {
     const paidAt = new Date();
 
     return withTransaction(async (connection) => {
-      await connection.execute<ResultSetHeader>(
+      await connection.query(
         `INSERT INTO payroll_entries (id, staff_id, gym_id, amount, month_key, method, txn_ref, notes, paid_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
         [
           payrollId,
           input.staffId,
@@ -54,23 +53,23 @@ export const payrollRepository = {
         ],
       );
 
-      await connection.execute<ResultSetHeader>(
+      await connection.query(
         `INSERT INTO cashflow_entries (id, gym_id, entry_type, category, amount, entry_date, notes)
-         VALUES (?, ?, 'expense', 'payroll', ?, CURDATE(), ?)`,
+         VALUES ($1, $2, 'expense', 'payroll', $3, CURRENT_DATE, $4)`,
         [cashflowId, gymId, input.amount, input.notes ?? `Payroll for ${input.month}`],
       );
 
-      const [rows] = await connection.execute<RowDataPacket[]>(
+      const result = await connection.query(
         `SELECT p.id, p.staff_id, s.name AS staff_name, s.email AS staff_email,
                 p.amount, p.month_key, p.method, p.txn_ref, p.notes, p.paid_at, p.created_at
          FROM payroll_entries p
          JOIN staff s ON s.id = p.staff_id
-         WHERE p.id = ? AND p.gym_id = ?
+         WHERE p.id = $1 AND p.gym_id = $2
          LIMIT 1`,
         [payrollId, gymId],
       );
 
-      return rows[0];
+      return result.rows[0];
     });
   },
 };

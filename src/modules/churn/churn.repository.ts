@@ -1,8 +1,7 @@
-import type { RowDataPacket } from "mysql2";
 import { query, withTransaction } from "../../config/db.js";
 import { makeId } from "../../common/utils/crypto.util.js";
 
-export interface ChurnMetricRow extends RowDataPacket {
+export interface ChurnMetricRow {
   member_id: string;
   gym_id: string;
   member_name: string;
@@ -28,13 +27,13 @@ export interface PersistedChurnScore {
 
 export const churnRepository = {
   async listActiveGyms() {
-    return query<RowDataPacket[]>(
+    return query(
       "SELECT id, name FROM gyms WHERE status = 'active' ORDER BY created_at ASC",
     );
   },
 
   async getMemberMetrics(gymId: string) {
-    return query<ChurnMetricRow[]>(
+    return query(
       `
       SELECT
         m.id AS member_id,
@@ -44,13 +43,13 @@ export const churnRepository = {
         u.phone,
         m.plan_name,
         MAX(a.attendance_date) AS last_visit,
-        DATEDIFF(CURDATE(), MAX(a.attendance_date)) AS days_since_visit,
-        COALESCE(SUM(CASE WHEN a.attendance_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) THEN 1 ELSE 0 END), 0) AS visits_last_7d,
-        COALESCE(SUM(CASE WHEN a.attendance_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) THEN 1 ELSE 0 END), 0) AS visits_last_30d
+        (CURRENT_DATE - MAX(a.attendance_date)::date) AS days_since_visit,
+        COALESCE(SUM(CASE WHEN a.attendance_date >= CURRENT_DATE - INTERVAL '7 days' THEN 1 ELSE 0 END), 0) AS visits_last_7d,
+        COALESCE(SUM(CASE WHEN a.attendance_date >= CURRENT_DATE - INTERVAL '30 days' THEN 1 ELSE 0 END), 0) AS visits_last_30d
       FROM members m
       JOIN users u ON u.id = m.user_id
       LEFT JOIN attendance_sessions a ON a.member_id = m.id
-      WHERE m.gym_id = ?
+      WHERE m.gym_id = $1
         AND m.status = 'active'
       GROUP BY
         m.id,
@@ -67,14 +66,14 @@ export const churnRepository = {
 
   async replaceScoresForGym(gymId: string, scores: PersistedChurnScore[]) {
     return withTransaction(async (connection) => {
-      await connection.execute("DELETE FROM churn_scores WHERE gym_id = ?", [gymId]);
+      await connection.query("DELETE FROM churn_scores WHERE gym_id = $1", [gymId]);
 
       for (const score of scores) {
-        await connection.execute(
+        await connection.query(
           `
           INSERT INTO churn_scores
           (id, member_id, gym_id, score, risk_band, days_since_visit, visits_last_7d, visits_last_30d, reason_json, calculated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
           `,
           [
             makeId(),
@@ -95,7 +94,7 @@ export const churnRepository = {
   },
 
   async listMembers(gymId: string) {
-    return query<RowDataPacket[]>(
+    return query(
       `
       SELECT
         cs.member_id AS id,
@@ -112,7 +111,7 @@ export const churnRepository = {
       FROM churn_scores cs
       JOIN members m ON m.id = cs.member_id
       JOIN users u ON u.id = m.user_id
-      WHERE cs.gym_id = ?
+      WHERE cs.gym_id = $1
       ORDER BY cs.score DESC, u.full_name ASC
       `,
       [gymId],
@@ -120,11 +119,11 @@ export const churnRepository = {
   },
 
   async getSummary(gymId: string) {
-    return query<RowDataPacket[]>(
+    return query(
       `
       SELECT risk_band, COUNT(*) AS total
       FROM churn_scores
-      WHERE gym_id = ?
+      WHERE gym_id = $1
       GROUP BY risk_band
       ORDER BY total DESC
       `,
@@ -133,7 +132,7 @@ export const churnRepository = {
   },
 
   async listAbsenceReminders(gymId: string) {
-    return query<RowDataPacket[]>(
+    return query(
       `
       SELECT
         ar.id,
@@ -148,7 +147,7 @@ export const churnRepository = {
       FROM absence_reminders ar
       JOIN members m ON m.id = ar.member_id
       JOIN users u ON u.id = m.user_id
-      WHERE ar.gym_id = ?
+      WHERE ar.gym_id = $1
       ORDER BY ar.reminder_date DESC, ar.created_at DESC
       LIMIT 100
       `,
@@ -157,7 +156,7 @@ export const churnRepository = {
   },
 
   async getMemberForReengage(memberId: string, gymId: string) {
-    const rows = await query<RowDataPacket[]>(
+    const rows = await query(
       `
       SELECT
         m.id,
@@ -167,8 +166,8 @@ export const churnRepository = {
         u.phone
       FROM members m
       JOIN users u ON u.id = m.user_id
-      WHERE m.id = ?
-        AND m.gym_id = ?
+      WHERE m.id = $1
+        AND m.gym_id = $2
         AND m.status = 'active'
       LIMIT 1
       `,

@@ -1,4 +1,3 @@
-import type { RowDataPacket } from "mysql2";
 import { query } from "../../config/db.js";
 import { makeId } from "../../common/utils/crypto.util.js";
 
@@ -26,7 +25,7 @@ export const leadsRepository = {
         id, gym_id, name, phone, email, source, status, lat, lng, distance_km,
         consent_given, consent_at, consent_ip, consent_user_agent, ref_code, notes, meta_payload
       )
-      VALUES (?, ?, ?, ?, ?, ?, 'new', ?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4, $5, $6, 'new', $7, $8, $9, $10, NOW(), $11, $12, $13, $14, $15)
       `,
       [
         leadId,
@@ -38,7 +37,7 @@ export const leadsRepository = {
         input.lat ?? null,
         input.lng ?? null,
         input.distanceKm ?? null,
-        input.consentGiven ? 1 : 0,
+        input.consentGiven,
         input.consentIp ?? null,
         input.consentUserAgent ?? null,
         input.refCode ?? null,
@@ -50,7 +49,7 @@ export const leadsRepository = {
     await query(
       `
       INSERT INTO lead_consent_audit (id, lead_id, phone, action_name, ip_address, user_agent, metadata_json)
-      VALUES (?, ?, ?, 'lead_submitted', ?, ?, ?)
+      VALUES ($1, $2, $3, 'lead_submitted', $4, $5, $6)
       `,
       [
         makeId(),
@@ -62,31 +61,31 @@ export const leadsRepository = {
       ]
     );
 
-    const rows = await query<RowDataPacket[]>("SELECT * FROM leads WHERE id = ? LIMIT 1", [leadId]);
+    const rows = await query("SELECT * FROM leads WHERE id = $1 LIMIT 1", [leadId]);
     return rows[0];
   },
 
   async listLeads(gymId: string) {
-    return query<RowDataPacket[]>("SELECT * FROM leads WHERE gym_id = ? ORDER BY created_at DESC", [gymId]);
+    return query("SELECT * FROM leads WHERE gym_id = $1 ORDER BY created_at DESC", [gymId]);
   },
 
   async updateLeadStatus(id: string, status: string) {
-    await query("UPDATE leads SET status = ? WHERE id = ?", [status, id]);
-    const rows = await query<RowDataPacket[]>("SELECT * FROM leads WHERE id = ? LIMIT 1", [id]);
+    await query("UPDATE leads SET status = $1 WHERE id = $2", [status, id]);
+    const rows = await query("SELECT * FROM leads WHERE id = $1 LIMIT 1", [id]);
     return rows[0] ?? null;
   },
 
   async optOut(id: string, phone: string) {
-    await query("UPDATE leads SET status = 'opted_out' WHERE id = ?", [id]);
+    await query("UPDATE leads SET status = 'opted_out' WHERE id = $1", [id]);
     await query(
-      "INSERT INTO lead_consent_audit (id, lead_id, phone, action_name, metadata_json) VALUES (?, ?, ?, 'opt_out', JSON_OBJECT())",
+      "INSERT INTO lead_consent_audit (id, lead_id, phone, action_name, metadata_json) VALUES ($1, $2, $3, 'opt_out', '{}')",
       [makeId(), id, phone]
     );
   },
 
   async analytics(gymId: string) {
-    const [counts] = await Promise.all([
-      query<RowDataPacket[]>(
+    const [counts, bySource] = await Promise.all([
+      query(
         `
         SELECT
           COUNT(*) AS total,
@@ -94,15 +93,15 @@ export const leadsRepository = {
           SUM(CASE WHEN status = 'converted' THEN 1 ELSE 0 END) AS converted_count,
           SUM(CASE WHEN status = 'opted_out' THEN 1 ELSE 0 END) AS opted_out_count
         FROM leads
-        WHERE gym_id = ?
+        WHERE gym_id = $1
         `,
         [gymId]
       ),
-      query<RowDataPacket[]>(
+      query(
         `
         SELECT source, COUNT(*) AS count
         FROM leads
-        WHERE gym_id = ?
+        WHERE gym_id = $1
         GROUP BY source
         ORDER BY count DESC
         `,
@@ -110,14 +109,14 @@ export const leadsRepository = {
       )
     ]);
 
-    return { summary: counts[0], bySource: counts[1] };
+    return { summary: counts[0], bySource };
   },
 
   async createBroadcast(input: { gymId: string; leadId?: string | null; phone: string; message: string; campaign: string; channel: string }) {
     await query(
       `
       INSERT INTO broadcast_logs (id, gym_id, lead_id, phone, message, campaign, channel, consent_verified, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'queued')
+      VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE, 'queued')
       `,
       [makeId(), input.gymId, input.leadId ?? null, input.phone, input.message, input.campaign, input.channel]
     );
@@ -137,7 +136,7 @@ export const leadsRepository = {
       `
       INSERT INTO nearby_businesses
       (id, gym_id, external_place_id, name, business_type, address, lat, lng, distance_km, fetched_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
       `,
       [makeId(), input.gymId, input.externalPlaceId ?? null, input.name, input.businessType ?? null, input.address ?? null, input.lat ?? null, input.lng ?? null, input.distanceKm ?? null]
     );

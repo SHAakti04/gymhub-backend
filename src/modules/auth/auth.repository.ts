@@ -1,4 +1,3 @@
-import type { ResultSetHeader, RowDataPacket } from "mysql2";
 import { query, withTransaction } from "../../config/db.js";
 import { makeId } from "../../common/utils/crypto.util.js";
 import { AppError } from "../../common/errors/app-error.js";
@@ -31,10 +30,10 @@ function getGymSeed(gymId: string) {
 }
 
 export const authRepository = {
-   async findByEmailOrUsername(username: string) {
+  async findByEmailOrUsername(username: string) {
     const normalizedUsername = username.trim().toLowerCase();
 
-    const rows = await query<(AuthUserRecord & RowDataPacket)[]>(
+    const rows = await query<AuthUserRecord[]>(
       `
       SELECT
         u.id,
@@ -45,16 +44,16 @@ export const authRepository = {
         u.full_name,
         u.phone,
         u.is_active,
-        GROUP_CONCAT(r.name ORDER BY r.name SEPARATOR ',') AS roles_csv
+        string_agg(r.name, ',' ORDER BY r.name) AS roles_csv
       FROM users u
       LEFT JOIN members m ON m.user_id = u.id
       LEFT JOIN user_role_assignments ura ON ura.user_id = u.id
       LEFT JOIN roles r ON r.id = ura.role_id
-      WHERE LOWER(TRIM(u.email)) = ? OR LOWER(SUBSTRING_INDEX(TRIM(u.email), '@', 1)) = ?
+      WHERE LOWER(TRIM(u.email)) = $1 OR LOWER(split_part(TRIM(u.email), '@', 1)) = $1
       GROUP BY u.id, m.id
       LIMIT 1
       `,
-      [normalizedUsername, normalizedUsername]
+      [normalizedUsername]
     );
 
     return rows[0] ?? null;
@@ -76,42 +75,42 @@ export const authRepository = {
       await connection.query(
         `
         INSERT INTO gyms (id, name, city, state, owner_name, owner_email, plan_name, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'active')
-        ON DUPLICATE KEY UPDATE
-          name = VALUES(name),
-          city = VALUES(city),
-          state = VALUES(state),
-          owner_name = VALUES(owner_name),
-          owner_email = VALUES(owner_email),
-          plan_name = VALUES(plan_name),
+        VALUES ($1, $2, $3, $4, $5, $6, $7, 'active')
+        ON CONFLICT (id) DO UPDATE SET
+          name = EXCLUDED.name,
+          city = EXCLUDED.city,
+          state = EXCLUDED.state,
+          owner_name = EXCLUDED.owner_name,
+          owner_email = EXCLUDED.owner_email,
+          plan_name = EXCLUDED.plan_name,
           status = 'active'
         `,
         [input.gymId, gym.name, gym.city, gym.state, gym.ownerName, gym.ownerEmail, gym.planName]
       );
 
-      const [roleRows] = await connection.query<RowDataPacket[]>(
-        "SELECT id FROM roles WHERE name = ? LIMIT 1",
+      const roleResult = await connection.query(
+        "SELECT id FROM roles WHERE name = $1 LIMIT 1",
         [input.role]
       );
 
-      const roleId = roleRows[0]?.id as string | undefined;
+      const roleId = roleResult.rows[0]?.id as string | undefined;
       if (!roleId) {
         throw new AppError(500, "ROLE_NOT_FOUND", `Role '${input.role}' is not configured`);
       }
 
       await connection.query(
-        "INSERT INTO users (id, gym_id, email, password_hash, full_name, phone) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO users (id, gym_id, email, password_hash, full_name, phone) VALUES ($1, $2, $3, $4, $5, $6)",
         [userId, input.gymId, input.email, input.passwordHash, input.name, input.phone]
       );
 
       await connection.query(
-        "INSERT INTO user_role_assignments (id, user_id, role_id) VALUES (?, ?, ?)",
+        "INSERT INTO user_role_assignments (id, user_id, role_id) VALUES ($1, $2, $3)",
         [makeId(), userId, roleId]
       );
 
       if (input.role === "member" && memberId) {
         await connection.query(
-          "INSERT INTO members (id, user_id, gym_id, status, join_date) VALUES (?, ?, ?, 'active', CURDATE())",
+          "INSERT INTO members (id, user_id, gym_id, status, join_date) VALUES ($1, $2, $3, 'active', CURRENT_DATE)",
           [memberId, userId, input.gymId]
         );
       }
@@ -121,14 +120,14 @@ export const authRepository = {
   },
 
   async saveRefreshToken(input: { userId: string; tokenHash: string; expiresAt: string }) {
-    await query<ResultSetHeader>(
-      "INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at) VALUES (?, ?, ?, ?)",
+    await query(
+      "INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at) VALUES ($1, $2, $3, $4)",
       [makeId(), input.userId, input.tokenHash, input.expiresAt]
     );
   },
 
   async findRefreshToken(tokenHash: string) {
-    const rows = await query<RowDataPacket[]>(
+    const rows = await query<AuthUserRecord[]>(
       `
       SELECT
         rt.id,
@@ -139,14 +138,14 @@ export const authRepository = {
         u.gym_id,
         u.full_name,
         m.id AS member_id,
-        GROUP_CONCAT(r.name ORDER BY r.name SEPARATOR ',') AS roles_csv
+        string_agg(r.name, ',' ORDER BY r.name) AS roles_csv
       FROM refresh_tokens rt
       JOIN users u ON u.id = rt.user_id
       LEFT JOIN members m ON m.user_id = u.id
       LEFT JOIN user_role_assignments ura ON ura.user_id = u.id
       LEFT JOIN roles r ON r.id = ura.role_id
-      WHERE rt.token_hash = ?
-      GROUP BY rt.id, m.id
+      WHERE rt.token_hash = $1
+      GROUP BY rt.id, u.id, u.email, u.gym_id, u.full_name, m.id
       LIMIT 1
       `,
       [tokenHash]
@@ -156,8 +155,8 @@ export const authRepository = {
   },
 
   async revokeRefreshToken(tokenHash: string) {
-    await query<ResultSetHeader>(
-      "UPDATE refresh_tokens SET revoked_at = NOW() WHERE token_hash = ? AND revoked_at IS NULL",
+    await query(
+      "UPDATE refresh_tokens SET revoked_at = NOW() WHERE token_hash = $1 AND revoked_at IS NULL",
       [tokenHash]
     );
   }

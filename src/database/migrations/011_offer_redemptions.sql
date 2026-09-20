@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS offer_redemptions (
   context_id CHAR(36) NOT NULL,
   discount_pct DECIMAL(5,2) NOT NULL,
   discount_amount DECIMAL(12,2) NOT NULL,
-  redeemed_at DATETIME NOT NULL,
+  redeemed_at TIMESTAMP NOT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_offer_redemptions_offer FOREIGN KEY (offer_id) REFERENCES offers(id) ON DELETE CASCADE,
   CONSTRAINT fk_offer_redemptions_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE

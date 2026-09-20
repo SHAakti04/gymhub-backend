@@ -1,39 +1,49 @@
-import mysql, { type Pool, type PoolConnection, type ResultSetHeader, type RowDataPacket } from "mysql2/promise";
+import { Pool, types, type PoolClient } from "pg";
 import { env } from "./env.js";
 
-export const pool: Pool = mysql.createPool({
+// Return JSON/JSONB columns as raw strings (same as MySQL behavior).
+// This ensures existing JSON.parse() calls in repositories continue to work.
+types.setTypeParser(114, (val: string) => val);   // json
+types.setTypeParser(3802, (val: string) => val);  // jsonb
+
+export const pool = new Pool({
   host: env.DB_HOST,
   port: env.DB_PORT,
   database: env.DB_NAME,
   user: env.DB_USER,
   password: env.DB_PASSWORD,
-  waitForConnections: true,
-  connectionLimit: 10,
-  namedPlaceholders: false
+  max: 10,
 });
 
 export async function assertDbConnection() {
-  const connection = await pool.getConnection();
-  await connection.ping();
-  connection.release();
-}
-
-export async function query<T = RowDataPacket[] | ResultSetHeader>(sql: string, params: unknown[] = []) {
-  const [rows] = await pool.query(sql, params);
-  return rows as T;
-}
-
-export async function withTransaction<T>(work: (connection: PoolConnection) => Promise<T>) {
-  const connection = await pool.getConnection();
+  const client = await pool.connect();
   try {
-    await connection.beginTransaction();
-    const result = await work(connection);
-    await connection.commit();
+    await client.query("SELECT 1");
+  } finally {
+    client.release();
+  }
+}
+
+export async function query<T = Record<string, unknown>[]>(sql: string, params: unknown[] = []) {
+  const result = await pool.query(sql, params);
+  return result.rows as unknown as T;
+}
+
+export async function execute(sql: string, params: unknown[] = []) {
+  return pool.query(sql, params);
+}
+
+export async function withTransaction<T>(work: (connection: PoolClient) => Promise<T>) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await work(client);
+    await client.query("COMMIT");
     return result;
   } catch (error) {
-    await connection.rollback();
+    await client.query("ROLLBACK");
     throw error;
   } finally {
-    connection.release();
+    client.release();
   }
 }

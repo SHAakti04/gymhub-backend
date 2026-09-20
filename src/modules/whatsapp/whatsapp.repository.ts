@@ -1,11 +1,10 @@
-import type { ResultSetHeader, RowDataPacket } from "mysql2";
 import { query } from "../../config/db.js";
 import { makeId } from "../../common/utils/crypto.util.js";
 import type { QueuedBroadcast, WhatsAppLogRow } from "./whatsapp.types.js";
 
 export const whatsappRepository = {
   async getQueuedBroadcasts(limit: number) {
-    return query<(QueuedBroadcast & RowDataPacket)[]>(
+    return query<(QueuedBroadcast & Record<string, unknown>)[]>(
       `
       SELECT
         b.*,
@@ -16,30 +15,30 @@ export const whatsappRepository = {
       WHERE b.channel = 'whatsapp'
         AND b.status = 'queued'
       ORDER BY b.created_at ASC
-      LIMIT ?
+      LIMIT $1
       `,
       [limit]
     );
   },
 
   async markBroadcastStatus(id: string, status: string, sentAt = false) {
-    await query<ResultSetHeader>(
-      `UPDATE broadcast_logs SET status = ?, sent_at = ${sentAt ? "NOW()" : "sent_at"} WHERE id = ?`,
+    await query(
+      `UPDATE broadcast_logs SET status = $1, sent_at = ${sentAt ? "NOW()" : "sent_at"} WHERE id = $2`,
       [status, id]
     );
   },
 
   async countSentToday() {
-    const rows = await query<RowDataPacket[]>(
+    const rows = await query(
       `
       SELECT COUNT(*) AS total
       FROM broadcast_logs
       WHERE channel = 'whatsapp'
         AND status IN ('sent', 'dry_run')
-        AND DATE(sent_at) = CURDATE()
+        AND DATE(sent_at) = CURRENT_DATE
       `
     );
-    return Number(rows[0]?.total ?? 0);
+    return Number((rows[0] as Record<string, unknown>)?.total ?? 0);
   },
 
   async createWhatsAppLog(input: {
@@ -50,11 +49,11 @@ export const whatsappRepository = {
     provider: string;
     metadata?: unknown;
   }) {
-    await query<ResultSetHeader>(
+    await query(
       `
       INSERT INTO whatsapp_logs
       (id, gym_id, recipient_phone, template_name, status, provider, metadata_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
       `,
       [
         makeId(),
@@ -69,20 +68,20 @@ export const whatsappRepository = {
   },
 
   async listLogs(gymId: string, limit = 100) {
-    return query<(WhatsAppLogRow & RowDataPacket)[]>(
+    return query<(WhatsAppLogRow & Record<string, unknown>)[]>(
       `
       SELECT *
       FROM whatsapp_logs
-      WHERE gym_id = ? OR gym_id IS NULL
+      WHERE gym_id = $1 OR gym_id IS NULL
       ORDER BY created_at DESC
-      LIMIT ?
+      LIMIT $2
       `,
       [gymId, limit]
     );
   },
 
   async getExpiryTargets(gymId: string) {
-    return query<RowDataPacket[]>(
+    return query(
       `
       SELECT
         m.id,
@@ -95,11 +94,11 @@ export const whatsappRepository = {
       FROM members m
       JOIN users u ON u.id = m.user_id
       LEFT JOIN plans p ON p.gym_id = m.gym_id AND p.name = m.plan_name
-      WHERE m.gym_id = ?
+      WHERE m.gym_id = $1
         AND m.status = 'active'
         AND u.phone IS NOT NULL
         AND m.expiry_date IS NOT NULL
-        AND DATEDIFF(m.expiry_date, CURDATE()) BETWEEN 0 AND 5
+        AND (m.expiry_date::date - CURRENT_DATE) BETWEEN 0 AND 5
       ORDER BY m.expiry_date ASC
       `,
       [gymId]
@@ -107,7 +106,7 @@ export const whatsappRepository = {
   },
 
   async getChurnTargets(gymId: string) {
-    return query<RowDataPacket[]>(
+    return query(
       `
       SELECT
         m.id,
@@ -115,15 +114,15 @@ export const whatsappRepository = {
         u.phone,
         m.gym_id,
         MAX(a.attendance_date) AS last_visit,
-        DATEDIFF(CURDATE(), MAX(a.attendance_date)) AS days_since_visit
+        (CURRENT_DATE - MAX(a.attendance_date)::date) AS days_since_visit
       FROM members m
       JOIN users u ON u.id = m.user_id
       LEFT JOIN attendance_sessions a ON a.member_id = m.id
-      WHERE m.gym_id = ?
+      WHERE m.gym_id = $1
         AND m.status = 'active'
         AND u.phone IS NOT NULL
       GROUP BY m.id, u.full_name, u.phone, m.gym_id
-      HAVING last_visit IS NULL OR days_since_visit >= 90
+      HAVING MAX(a.attendance_date) IS NULL OR (CURRENT_DATE - MAX(a.attendance_date)::date) >= 90
       ORDER BY days_since_visit DESC
       LIMIT 200
       `,
@@ -138,11 +137,11 @@ export const whatsappRepository = {
     message: string;
     campaign: string;
   }) {
-    await query<ResultSetHeader>(
+    await query(
       `
       INSERT INTO broadcast_logs
       (id, gym_id, lead_id, phone, message, campaign, channel, consent_verified, status)
-      VALUES (?, ?, ?, ?, ?, ?, 'whatsapp', 1, 'queued')
+      VALUES ($1, $2, $3, $4, $5, $6, 'whatsapp', TRUE, 'queued')
       `,
       [makeId(), input.gymId, input.leadId ?? null, input.phone, input.message, input.campaign]
     );

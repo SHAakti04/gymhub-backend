@@ -13,9 +13,9 @@ CREATE TABLE IF NOT EXISTS orders (
   payment_method VARCHAR(20) NOT NULL,
   upi_txn_ref VARCHAR(120) NULL,
   payment_note TEXT NULL,
-  placed_at DATETIME NOT NULL,
-  fulfilled_at DATETIME NULL,
-  cancelled_at DATETIME NULL,
+  placed_at TIMESTAMP NOT NULL,
+  fulfilled_at TIMESTAMP NULL,
+  cancelled_at TIMESTAMP NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_orders_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
 );

@@ -16,11 +16,12 @@ CREATE TABLE IF NOT EXISTS roles (
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-INSERT IGNORE INTO roles (id, name) VALUES
+INSERT INTO roles (id, name) VALUES
 ('00000000-0000-0000-0000-000000000001', 'super'),
 ('00000000-0000-0000-0000-000000000002', 'admin'),
 ('00000000-0000-0000-0000-000000000003', 'staff'),
-('00000000-0000-0000-0000-000000000004', 'member');
+('00000000-0000-0000-0000-000000000004', 'member')
+ON CONFLICT (name) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS users (
   id CHAR(36) PRIMARY KEY,
@@ -29,18 +30,22 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash VARCHAR(255) NOT NULL,
   full_name VARCHAR(150) NOT NULL,
   phone VARCHAR(30),
-  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_users_gym FOREIGN KEY (gym_id) REFERENCES gyms(id) ON DELETE SET NULL
 );
+
+CREATE TRIGGER trg_users_updated_at
+  BEFORE UPDATE ON users
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 CREATE TABLE IF NOT EXISTS user_role_assignments (
   id CHAR(36) PRIMARY KEY,
   user_id CHAR(36) NOT NULL,
   role_id CHAR(36) NOT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE KEY uq_user_role (user_id, role_id),
+  CONSTRAINT uq_user_role UNIQUE (user_id, role_id),
   CONSTRAINT fk_ura_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   CONSTRAINT fk_ura_role FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE
 );
@@ -49,8 +54,8 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
   id CHAR(36) PRIMARY KEY,
   user_id CHAR(36) NOT NULL,
   token_hash VARCHAR(128) NOT NULL UNIQUE,
-  expires_at DATETIME NOT NULL,
-  revoked_at DATETIME NULL,
+  expires_at TIMESTAMP NOT NULL,
+  revoked_at TIMESTAMP NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_refresh_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
@@ -68,10 +73,14 @@ CREATE TABLE IF NOT EXISTS members (
   emergency_contact VARCHAR(30) NULL,
   avatar_url TEXT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_members_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   CONSTRAINT fk_members_gym FOREIGN KEY (gym_id) REFERENCES gyms(id) ON DELETE CASCADE
 );
+
+CREATE TRIGGER trg_members_updated_at
+  BEFORE UPDATE ON members
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 CREATE TABLE IF NOT EXISTS staff (
   id CHAR(36) PRIMARY KEY,
@@ -108,7 +117,7 @@ CREATE TABLE IF NOT EXISTS attendance_sessions (
   qr_code VARCHAR(120) NOT NULL,
   source VARCHAR(20) NOT NULL DEFAULT 'camera',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE KEY uq_member_day (member_id, attendance_date),
+  CONSTRAINT uq_member_day UNIQUE (member_id, attendance_date),
   CONSTRAINT fk_attendance_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE,
   CONSTRAINT fk_attendance_gym FOREIGN KEY (gym_id) REFERENCES gyms(id) ON DELETE CASCADE
 );
@@ -120,7 +129,7 @@ CREATE TABLE IF NOT EXISTS daily_qr_codes (
   code VARCHAR(120) NOT NULL,
   generated_by_user_id CHAR(36) NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE KEY uq_gym_qr_date (gym_id, qr_date),
+  CONSTRAINT uq_gym_qr_date UNIQUE (gym_id, qr_date),
   CONSTRAINT fk_daily_qr_gym FOREIGN KEY (gym_id) REFERENCES gyms(id) ON DELETE CASCADE
 );
 
@@ -132,7 +141,7 @@ CREATE TABLE IF NOT EXISTS payments (
   method VARCHAR(20) NOT NULL,
   plan_name VARCHAR(50),
   status VARCHAR(20) NOT NULL DEFAULT 'paid',
-  paid_at DATETIME NOT NULL,
+  paid_at TIMESTAMP NOT NULL,
   txn_ref VARCHAR(100) NULL,
   notes TEXT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -146,8 +155,8 @@ CREATE TABLE IF NOT EXISTS receipts (
   member_id CHAR(36) NOT NULL,
   gym_id VARCHAR(64) NOT NULL,
   receipt_no VARCHAR(100) NOT NULL UNIQUE,
-  issued_at DATETIME NOT NULL,
-  metadata_json JSON NULL,
+  issued_at TIMESTAMP NOT NULL,
+  metadata_json TEXT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_receipts_payment FOREIGN KEY (payment_id) REFERENCES payments(id) ON DELETE CASCADE
 );
@@ -158,7 +167,7 @@ CREATE TABLE IF NOT EXISTS renewals (
   gym_id VARCHAR(64) NOT NULL,
   due_date DATE NOT NULL,
   status VARCHAR(20) NOT NULL DEFAULT 'pending',
-  reminder_sent_at DATETIME NULL,
+  reminder_sent_at TIMESTAMP NULL,
   renewed_payment_id CHAR(36) NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_renewals_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
@@ -185,7 +194,7 @@ CREATE TABLE IF NOT EXISTS payroll_entries (
   method VARCHAR(20) NOT NULL,
   txn_ref VARCHAR(100) NULL,
   notes TEXT NULL,
-  paid_at DATETIME NOT NULL,
+  paid_at TIMESTAMP NOT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_payroll_staff FOREIGN KEY (staff_id) REFERENCES staff(id) ON DELETE CASCADE
 );
@@ -213,18 +222,22 @@ CREATE TABLE IF NOT EXISTS leads (
   lat DECIMAL(10,7) NULL,
   lng DECIMAL(10,7) NULL,
   distance_km DECIMAL(10,2) NULL,
-  consent_given TINYINT(1) NOT NULL DEFAULT 0,
-  consent_at DATETIME NULL,
+  consent_given BOOLEAN NOT NULL DEFAULT FALSE,
+  consent_at TIMESTAMP NULL,
   consent_ip VARCHAR(64) NULL,
   consent_user_agent VARCHAR(500) NULL,
   ref_code VARCHAR(50) NULL,
   ref_by VARCHAR(100) NULL,
   notes TEXT NULL,
-  meta_payload JSON NULL,
+  meta_payload TEXT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_leads_gym FOREIGN KEY (gym_id) REFERENCES gyms(id) ON DELETE CASCADE
 );
+
+CREATE TRIGGER trg_leads_updated_at
+  BEFORE UPDATE ON leads
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 CREATE TABLE IF NOT EXISTS lead_consent_audit (
   id CHAR(36) PRIMARY KEY,
@@ -233,7 +246,7 @@ CREATE TABLE IF NOT EXISTS lead_consent_audit (
   action_name VARCHAR(50) NOT NULL,
   ip_address VARCHAR(64) NULL,
   user_agent VARCHAR(500) NULL,
-  metadata_json JSON NULL,
+  metadata_json TEXT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -243,7 +256,7 @@ CREATE TABLE IF NOT EXISTS lead_referrals (
   lead_id CHAR(36) NULL,
   status VARCHAR(20) NOT NULL DEFAULT 'pending',
   reward_points INT NOT NULL DEFAULT 0,
-  reward_credited TINYINT(1) NOT NULL DEFAULT 0,
+  reward_credited BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -255,9 +268,9 @@ CREATE TABLE IF NOT EXISTS broadcast_logs (
   message TEXT NOT NULL,
   campaign VARCHAR(100) NOT NULL,
   channel VARCHAR(20) NOT NULL DEFAULT 'whatsapp',
-  consent_verified TINYINT(1) NOT NULL DEFAULT 0,
+  consent_verified BOOLEAN NOT NULL DEFAULT FALSE,
   status VARCHAR(20) NOT NULL DEFAULT 'queued',
-  sent_at DATETIME NULL,
+  sent_at TIMESTAMP NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -275,7 +288,7 @@ CREATE TABLE IF NOT EXISTS nearby_businesses (
   rating DECIMAL(3,2) NULL,
   partnership_status VARCHAR(30) NOT NULL DEFAULT 'prospect',
   notes TEXT NULL,
-  fetched_at DATETIME NOT NULL,
+  fetched_at TIMESTAMP NOT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -288,8 +301,8 @@ CREATE TABLE IF NOT EXISTS churn_scores (
   days_since_visit INT NOT NULL DEFAULT 0,
   visits_last_7d INT NOT NULL DEFAULT 0,
   visits_last_30d INT NOT NULL DEFAULT 0,
-  reason_json JSON NULL,
-  calculated_at DATETIME NOT NULL,
+  reason_json TEXT NULL,
+  calculated_at TIMESTAMP NOT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -299,7 +312,7 @@ CREATE TABLE IF NOT EXISTS absence_reminders (
   gym_id VARCHAR(64) NOT NULL,
   reminder_date DATE NOT NULL,
   status VARCHAR(20) NOT NULL DEFAULT 'queued',
-  sent_at DATETIME NULL,
+  sent_at TIMESTAMP NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -310,7 +323,7 @@ CREATE TABLE IF NOT EXISTS email_logs (
   subject VARCHAR(255) NOT NULL,
   status VARCHAR(20) NOT NULL,
   provider VARCHAR(30) NULL,
-  metadata_json JSON NULL,
+  metadata_json TEXT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -321,7 +334,7 @@ CREATE TABLE IF NOT EXISTS whatsapp_logs (
   template_name VARCHAR(100) NULL,
   status VARCHAR(20) NOT NULL,
   provider VARCHAR(30) NULL,
-  metadata_json JSON NULL,
+  metadata_json TEXT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -331,7 +344,7 @@ CREATE TABLE IF NOT EXISTS workout_plans (
   member_id CHAR(36) NULL,
   title VARCHAR(150) NOT NULL,
   goal VARCHAR(100) NULL,
-  content_json JSON NOT NULL,
+  content_json TEXT NOT NULL,
   created_by_user_id CHAR(36) NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -363,7 +376,7 @@ CREATE TABLE IF NOT EXISTS class_bookings (
   gym_id VARCHAR(64) NOT NULL,
   member_id CHAR(36) NOT NULL,
   class_name VARCHAR(150) NOT NULL,
-  starts_at DATETIME NOT NULL,
+  starts_at TIMESTAMP NOT NULL,
   status VARCHAR(20) NOT NULL DEFAULT 'booked',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -376,7 +389,7 @@ CREATE TABLE IF NOT EXISTS offers (
   discount_pct DECIMAL(5,2) NOT NULL,
   valid_from DATE NOT NULL,
   valid_to DATE NOT NULL,
-  active TINYINT(1) NOT NULL DEFAULT 1,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
   applies_to VARCHAR(20) NOT NULL DEFAULT 'all',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -389,7 +402,7 @@ CREATE TABLE IF NOT EXISTS competitions (
   start_date DATE NOT NULL,
   end_date DATE NOT NULL,
   prize VARCHAR(255) NULL,
-  active TINYINT(1) NOT NULL DEFAULT 1,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -398,7 +411,7 @@ CREATE TABLE IF NOT EXISTS competition_participants (
   competition_id CHAR(36) NOT NULL,
   member_id CHAR(36) NOT NULL,
   score DECIMAL(10,2) NOT NULL DEFAULT 0,
-  joined_at DATETIME NOT NULL,
+  joined_at TIMESTAMP NOT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -409,7 +422,7 @@ CREATE TABLE IF NOT EXISTS notifications (
   title VARCHAR(150) NOT NULL,
   body TEXT NOT NULL,
   channel VARCHAR(20) NOT NULL DEFAULT 'in_app',
-  is_read TINYINT(1) NOT NULL DEFAULT 0,
+  is_read BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -420,6 +433,6 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   action_name VARCHAR(100) NOT NULL,
   entity_type VARCHAR(50) NOT NULL,
   entity_id CHAR(36) NULL,
-  payload_json JSON NULL,
+  payload_json TEXT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

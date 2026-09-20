@@ -1,4 +1,3 @@
-import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import { query } from "../../config/db.js";
 import { makeId } from "../../common/utils/crypto.util.js";
 
@@ -12,7 +11,7 @@ const parseJson = (value: unknown, fallback: unknown) => {
   }
 };
 
-const normalizeBranding = (row: RowDataPacket | undefined | null) =>
+const normalizeBranding = (row: Record<string, unknown> | undefined | null) =>
   row
     ? {
         gymId: row.gym_id,
@@ -28,14 +27,14 @@ const normalizeBranding = (row: RowDataPacket | undefined | null) =>
       }
     : null;
 
-const normalizeSection = (row: RowDataPacket) => ({
+const normalizeSection = (row: Record<string, unknown>) => ({
   id: row.id,
   gymId: row.gym_id,
   sectionKey: row.section_key,
   content: parseJson(row.content_json, {}),
 });
 
-const normalizeGallery = (row: RowDataPacket) => ({
+const normalizeGallery = (row: Record<string, unknown>) => ({
   id: row.id,
   title: row.title,
   imageUrl: row.image_url,
@@ -44,7 +43,7 @@ const normalizeGallery = (row: RowDataPacket) => ({
   isActive: Boolean(row.is_active),
 });
 
-const normalizeProgram = (row: RowDataPacket) => ({
+const normalizeProgram = (row: Record<string, unknown>) => ({
   id: row.id,
   name: row.name,
   description: row.description,
@@ -55,7 +54,7 @@ const normalizeProgram = (row: RowDataPacket) => ({
   isActive: Boolean(row.is_active),
 });
 
-const normalizePricing = (row: RowDataPacket) => ({
+const normalizePricing = (row: Record<string, unknown>) => ({
   id: row.id,
   name: row.name,
   price: Number(row.price ?? 0),
@@ -66,7 +65,7 @@ const normalizePricing = (row: RowDataPacket) => ({
   isActive: Boolean(row.is_active),
 });
 
-const normalizeBlog = (row: RowDataPacket) => ({
+const normalizeBlog = (row: Record<string, unknown>) => ({
   id: row.id,
   title: row.title,
   slug: row.slug,
@@ -79,28 +78,28 @@ const normalizeBlog = (row: RowDataPacket) => ({
 
 export const websiteRepository = {
   async getBranding(gymId: string) {
-    const rows = await query<RowDataPacket[]>(
-      "SELECT * FROM gym_branding WHERE gym_id = ? LIMIT 1",
+    const rows = await query(
+      "SELECT * FROM gym_branding WHERE gym_id = $1 LIMIT 1",
       [gymId],
     );
-    return normalizeBranding(rows[0]);
+    return normalizeBranding(rows[0] as Record<string, unknown> | undefined);
   },
 
   async saveBranding(gymId: string, input: Record<string, unknown>) {
-    await query<ResultSetHeader>(
+    await query(
       `INSERT INTO gym_branding
        (gym_id, public_name, tagline, logo_url, hero_image_url, phone, email, address, map_embed_url, social_links_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         public_name = VALUES(public_name),
-         tagline = VALUES(tagline),
-         logo_url = VALUES(logo_url),
-         hero_image_url = VALUES(hero_image_url),
-         phone = VALUES(phone),
-         email = VALUES(email),
-         address = VALUES(address),
-         map_embed_url = VALUES(map_embed_url),
-         social_links_json = VALUES(social_links_json)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       ON CONFLICT (gym_id) DO UPDATE SET
+         public_name = EXCLUDED.public_name,
+         tagline = EXCLUDED.tagline,
+         logo_url = EXCLUDED.logo_url,
+         hero_image_url = EXCLUDED.hero_image_url,
+         phone = EXCLUDED.phone,
+         email = EXCLUDED.email,
+         address = EXCLUDED.address,
+         map_embed_url = EXCLUDED.map_embed_url,
+         social_links_json = EXCLUDED.social_links_json`,
       [
         gymId,
         input.publicName ?? null,
@@ -119,49 +118,49 @@ export const websiteRepository = {
   },
 
   async listSections(gymId: string) {
-    const rows = await query<RowDataPacket[]>(
-      "SELECT * FROM website_sections WHERE gym_id = ? ORDER BY section_key",
+    const rows = await query(
+      "SELECT * FROM website_sections WHERE gym_id = $1 ORDER BY section_key",
       [gymId],
     );
-    return rows.map(normalizeSection);
+    return rows.map((r) => normalizeSection(r as Record<string, unknown>));
   },
 
   async saveSection(gymId: string, sectionKey: string, content: unknown) {
     const id = makeId();
-    await query<ResultSetHeader>(
+    await query(
       `INSERT INTO website_sections (id, gym_id, section_key, content_json)
-       VALUES (?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE content_json = VALUES(content_json)`,
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (gym_id, section_key) DO UPDATE SET content_json = EXCLUDED.content_json`,
       [id, gymId, sectionKey, JSON.stringify(content ?? {})],
     );
 
-    const rows = await query<RowDataPacket[]>(
-      "SELECT * FROM website_sections WHERE gym_id = ? AND section_key = ? LIMIT 1",
+    const rows = await query(
+      "SELECT * FROM website_sections WHERE gym_id = $1 AND section_key = $2 LIMIT 1",
       [gymId, sectionKey],
     );
-    return normalizeSection(rows[0]);
+    return normalizeSection(rows[0] as Record<string, unknown>);
   },
 
   async listGallery(gymId: string, publicOnly = false) {
-    const rows = await query<RowDataPacket[]>(
+    const rows = await query(
       `SELECT * FROM website_gallery_images
-       WHERE gym_id = ? ${publicOnly ? "AND is_active = 1" : ""}
+       WHERE gym_id = $1 ${publicOnly ? "AND is_active = TRUE" : ""}
        ORDER BY sort_order ASC, created_at DESC`,
       [gymId],
     );
-    return rows.map(normalizeGallery);
+    return rows.map((r) => normalizeGallery(r as Record<string, unknown>));
   },
 
   async upsertGallery(gymId: string, input: Record<string, unknown>, id: string = makeId()) {
-    await query<ResultSetHeader>(
+    await query(
       `INSERT INTO website_gallery_images (id, gym_id, title, image_url, alt_text, sort_order, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         title = VALUES(title),
-         image_url = VALUES(image_url),
-         alt_text = VALUES(alt_text),
-         sort_order = VALUES(sort_order),
-         is_active = VALUES(is_active)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (id) DO UPDATE SET
+         title = EXCLUDED.title,
+         image_url = EXCLUDED.image_url,
+         alt_text = EXCLUDED.alt_text,
+         sort_order = EXCLUDED.sort_order,
+         is_active = EXCLUDED.is_active`,
       [
         id,
         gymId,
@@ -169,42 +168,42 @@ export const websiteRepository = {
         input.imageUrl,
         input.altText ?? null,
         input.sortOrder ?? 0,
-        input.isActive === false ? 0 : 1,
+        input.isActive !== false,
       ],
     );
     return (await this.listGallery(gymId)).find((row) => row.id === id) ?? null;
   },
 
   async deleteGallery(gymId: string, id: string) {
-    await query<ResultSetHeader>("DELETE FROM website_gallery_images WHERE id = ? AND gym_id = ?", [
+    await query("DELETE FROM website_gallery_images WHERE id = $1 AND gym_id = $2", [
       id,
       gymId,
     ]);
   },
 
   async listPrograms(gymId: string, publicOnly = false) {
-    const rows = await query<RowDataPacket[]>(
+    const rows = await query(
       `SELECT * FROM website_programs
-       WHERE gym_id = ? ${publicOnly ? "AND is_active = 1" : ""}
+       WHERE gym_id = $1 ${publicOnly ? "AND is_active = TRUE" : ""}
        ORDER BY sort_order ASC, created_at DESC`,
       [gymId],
     );
-    return rows.map(normalizeProgram);
+    return rows.map((r) => normalizeProgram(r as Record<string, unknown>));
   },
 
   async upsertProgram(gymId: string, input: Record<string, unknown>, id: string = makeId()) {
-    await query<ResultSetHeader>(
+    await query(
       `INSERT INTO website_programs
        (id, gym_id, name, description, duration, level_name, icon_key, sort_order, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         name = VALUES(name),
-         description = VALUES(description),
-         duration = VALUES(duration),
-         level_name = VALUES(level_name),
-         icon_key = VALUES(icon_key),
-         sort_order = VALUES(sort_order),
-         is_active = VALUES(is_active)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       ON CONFLICT (id) DO UPDATE SET
+         name = EXCLUDED.name,
+         description = EXCLUDED.description,
+         duration = EXCLUDED.duration,
+         level_name = EXCLUDED.level_name,
+         icon_key = EXCLUDED.icon_key,
+         sort_order = EXCLUDED.sort_order,
+         is_active = EXCLUDED.is_active`,
       [
         id,
         gymId,
@@ -214,42 +213,42 @@ export const websiteRepository = {
         input.levelName ?? null,
         input.iconKey ?? "Dumbbell",
         input.sortOrder ?? 0,
-        input.isActive === false ? 0 : 1,
+        input.isActive !== false,
       ],
     );
     return (await this.listPrograms(gymId)).find((row) => row.id === id) ?? null;
   },
 
   async deleteProgram(gymId: string, id: string) {
-    await query<ResultSetHeader>("DELETE FROM website_programs WHERE id = ? AND gym_id = ?", [
+    await query("DELETE FROM website_programs WHERE id = $1 AND gym_id = $2", [
       id,
       gymId,
     ]);
   },
 
   async listPricing(gymId: string, publicOnly = false) {
-    const rows = await query<RowDataPacket[]>(
+    const rows = await query(
       `SELECT * FROM website_pricing_plans
-       WHERE gym_id = ? ${publicOnly ? "AND is_active = 1" : ""}
+       WHERE gym_id = $1 ${publicOnly ? "AND is_active = TRUE" : ""}
        ORDER BY sort_order ASC, created_at DESC`,
       [gymId],
     );
-    return rows.map(normalizePricing);
+    return rows.map((r) => normalizePricing(r as Record<string, unknown>));
   },
 
   async upsertPricing(gymId: string, input: Record<string, unknown>, id: string = makeId()) {
-    await query<ResultSetHeader>(
+    await query(
       `INSERT INTO website_pricing_plans
        (id, gym_id, name, price, duration, features_json, is_popular, sort_order, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         name = VALUES(name),
-         price = VALUES(price),
-         duration = VALUES(duration),
-         features_json = VALUES(features_json),
-         is_popular = VALUES(is_popular),
-         sort_order = VALUES(sort_order),
-         is_active = VALUES(is_active)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       ON CONFLICT (id) DO UPDATE SET
+         name = EXCLUDED.name,
+         price = EXCLUDED.price,
+         duration = EXCLUDED.duration,
+         features_json = EXCLUDED.features_json,
+         is_popular = EXCLUDED.is_popular,
+         sort_order = EXCLUDED.sort_order,
+         is_active = EXCLUDED.is_active`,
       [
         id,
         gymId,
@@ -257,43 +256,43 @@ export const websiteRepository = {
         input.price,
         input.duration ?? "month",
         JSON.stringify(input.features ?? []),
-        input.isPopular ? 1 : 0,
+        Boolean(input.isPopular),
         input.sortOrder ?? 0,
-        input.isActive === false ? 0 : 1,
+        input.isActive !== false,
       ],
     );
     return (await this.listPricing(gymId)).find((row) => row.id === id) ?? null;
   },
 
   async deletePricing(gymId: string, id: string) {
-    await query<ResultSetHeader>("DELETE FROM website_pricing_plans WHERE id = ? AND gym_id = ?", [
+    await query("DELETE FROM website_pricing_plans WHERE id = $1 AND gym_id = $2", [
       id,
       gymId,
     ]);
   },
 
   async listBlog(gymId: string, publicOnly = false) {
-    const rows = await query<RowDataPacket[]>(
+    const rows = await query(
       `SELECT * FROM website_blog_posts
-       WHERE gym_id = ? ${publicOnly ? "AND status = 'published'" : ""}
+       WHERE gym_id = $1 ${publicOnly ? "AND status = 'published'" : ""}
        ORDER BY COALESCE(published_at, created_at) DESC`,
       [gymId],
     );
-    return rows.map(normalizeBlog);
+    return rows.map((r) => normalizeBlog(r as Record<string, unknown>));
   },
 
   async upsertBlog(gymId: string, input: Record<string, unknown>, id: string = makeId()) {
-    await query<ResultSetHeader>(
+    await query(
       `INSERT INTO website_blog_posts
        (id, gym_id, title, slug, excerpt, body, cover_image_url, status, published_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         title = VALUES(title),
-         excerpt = VALUES(excerpt),
-         body = VALUES(body),
-         cover_image_url = VALUES(cover_image_url),
-         status = VALUES(status),
-         published_at = VALUES(published_at)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       ON CONFLICT (id) DO UPDATE SET
+         title = EXCLUDED.title,
+         excerpt = EXCLUDED.excerpt,
+         body = EXCLUDED.body,
+         cover_image_url = EXCLUDED.cover_image_url,
+         status = EXCLUDED.status,
+         published_at = EXCLUDED.published_at`,
       [
         id,
         gymId,
@@ -310,7 +309,7 @@ export const websiteRepository = {
   },
 
   async deleteBlog(gymId: string, id: string) {
-    await query<ResultSetHeader>("DELETE FROM website_blog_posts WHERE id = ? AND gym_id = ?", [
+    await query("DELETE FROM website_blog_posts WHERE id = $1 AND gym_id = $2", [
       id,
       gymId,
     ]);
