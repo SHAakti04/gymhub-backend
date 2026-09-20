@@ -13,6 +13,7 @@ export const pool = new Pool({
   user: env.DB_USER,
   password: env.DB_PASSWORD,
   max: 10,
+  ssl: env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false,
 });
 
 export async function assertDbConnection() {
